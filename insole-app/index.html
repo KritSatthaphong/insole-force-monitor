@@ -32,7 +32,8 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
   padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
 header h1 { font-size: 17px; margin: 0; margin-right: auto; }
 header h1 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
-.group { display: flex; align-items: center; gap: 6px; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+#recInfo { overflow-wrap: anywhere; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .seg button { border: 0; border-radius: 0; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
@@ -97,7 +98,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 dialog h3 { margin: 0 0 4px; }
 dialog p { color: var(--muted); margin: 4px 0 10px; font-size: 12px; }
 dialog#calDlg { max-width: min(860px, calc(100vw - 32px)); }
-.calgrid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.calgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .calgrid input { width: 64px; font: inherit; padding: 3px 5px; border-radius: 6px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--text); text-align: right; }
 .calgrid th.grp { text-align: center; border-bottom: 0; padding-bottom: 0; }
@@ -137,11 +138,29 @@ svg .trail { fill: none; stroke: var(--text); stroke-width: 1.1; stroke-linejoin
 .scroll { overflow-x: auto; }
 details summary { cursor: pointer; color: var(--accent); margin-top: 12px; font-size: 13px; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.stats.imu { margin-top: -2px; }
+.res-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+@media (max-width: 520px) { .res-pair { grid-template-columns: 1fr; } }
+.stat small { display: block; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.ok { color: var(--ok); font-weight: 600; }
+.bad { color: var(--bad); font-weight: 600; }
+.calsec { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; }
+.calsec h4 { margin: 0 0 4px; font-size: 14px; }
+.calsec select { font: inherit; }
+#bwDlg { max-width: min(520px, calc(100vw - 32px)); }
+#bwDlg input[type=number] { width: 80px; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); }
+.bwlive { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 6px 0; }
+.bwres { font-size: 13px; white-space: pre-line; min-height: 2.6em; }
+.prog { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin: 6px 0; }
+.prog i { display: block; height: 100%; width: 0; background: var(--accent); }
 </style>
 </head>
 <body>
 <header>
-  <h1>Insole Force Monitor <small>A401 · EU42 · RF 39 kΩ</small></h1>
+  <h1>Insole Force Monitor <small>A401 · EU42 · RF 39 kΩ · BMI270</small></h1>
   <div class="group">
     <span class="note">Color by</span>
     <div class="seg" role="group" aria-label="Color by">
@@ -152,6 +171,7 @@ details summary { cursor: pointer; color: var(--accent); margin-top: 12px; font-
   <div class="group">
     <button id="peakBtn" aria-pressed="false">Peak hold: off</button>
     <button id="peakReset">Reset peaks</button>
+    <button id="bwBtn" class="bw" aria-pressed="false" title="Multiply vGRF by each foot's body-weight factor (set with BW cal on each foot)">BW scale: off</button>
   </div>
   <div class="group">
     <button id="recBtn" class="rec" aria-pressed="false">● Record</button>
@@ -193,6 +213,23 @@ details summary { cursor: pointer; color: var(--accent); margin-top: 12px; font-
   <div class="dlg-actions"><button id="logClose" class="primary">Close</button></div>
 </dialog>
 
+<dialog id="bwDlg">
+  <h3 id="bwTitle">Body-weight calibration</h3>
+  <p>The 7 sensors cover only part of the sole, so Σ sensor force reads below the real foot load. Standing still on one foot puts your
+  whole body weight on it: scale = body weight / Σ sensor force. With <b>BW scale</b> on, vGRF and its results are multiplied by this factor.</p>
+  <label class="chk">Body mass <input type="number" id="bwMass" min="20" max="250" step="0.1"> kg</label>
+  <p id="bwHow"></p>
+  <div class="bwlive" id="bwLive">Σ — N</div>
+  <div class="prog"><i id="bwProg"></i></div>
+  <div class="bwres" id="bwRes"></div>
+  <div class="dlg-actions">
+    <button id="bwClear">Clear factor</button>
+    <button id="bwCancel">Close</button>
+    <button id="bwStart">Start (3 s)</button>
+    <button id="bwUse" class="primary" disabled>Use this factor</button>
+  </div>
+</dialog>
+
 <dialog id="calDlg">
   <h3>Calibration: F = a · G<sup>b</sup> per sensor</h3>
   <p>G (µS) = (mV / base − 1) / RF × 10⁶, RF = 39 kΩ. Defaults are fitted from <i>S1-S7test results.xlsx</i> (UTM rigid plate, 0 → 1000 → 0 N,
@@ -206,6 +243,30 @@ details summary { cursor: pointer; color: var(--accent); margin-top: 12px; font-
   </div>
   <p id="calReport"></p>
   <div class="calgrid" id="calGrid"></div>
+  <div class="calsec">
+    <h4>Calibration check: does each channel's mV → N conversion match its UTM data?</h4>
+    <p>Runs the app's own conversion (the coefficients above, hysteresis setting included, base = the test's zero mV) over UTM hold points
+    and compares with the UTM force. Built-in data: <i>S1-S7test results.xlsx</i> (the data the defaults were fitted on, so this checks the
+    coefficients in use) and, for ch1, the independent S1 3-round run (<i>UTM_S1_20261027_230602_CAL</i>, RF 39k). Saturated points (≥ 3250 mV)
+    and 0 N points are left out. Verdict: max error within ±52 N (the S1 RSS budget, 5.2 % FS) and bias within ±20 N.</p>
+    <div class="calimport">
+      <label>Foot <select id="chkFoot"><option value="L">Left</option><option value="R">Right</option></select></label>
+      <button id="chkRun">Check built-in UTM data</button>
+      <label>or a UTM file (FSR_UTM_Cal CAL .csv, or a workbook .xlsx/.csv) <input type="file" id="chkFile" accept=".xlsx,.csv"></label>
+      <label>CAL .csv channel <select id="chkCh"><option value="auto">as in file</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select></label>
+    </div>
+    <div id="chkOut"></div>
+  </div>
+  <div class="calsec">
+    <h4>IMU mounting (BMI270 on the insole)</h4>
+    <p>Which sensor axis points to the toes and which points up out of the insole. Used for foot pitch, eversion, foot progression angle
+    and the live angles. Check: standing flat, the live pitch and eversion should read ≈ 0°, and |a| ≈ 1.00 g.</p>
+    <div class="calimport">
+      <label>Toe axis <select id="mountFwd"></select></label>
+      <label>Up axis <select id="mountUp"></select></label>
+      <span id="mountMsg" class="note"></span>
+    </div>
+  </div>
   <div class="dlg-actions">
     <button id="calCopy">Copy Left → Right</button>
     <button id="calDefaults">Reset defaults</button>
@@ -230,6 +291,15 @@ const GAIT = { ON: 20, OFF: 10, REG: 10, LOADED: 5, MIN_STANCE: 200, MAX_STRIDE:
 const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_IMU = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";   // IMU notify, firmware v1.1+
+const G0 = 9.80665, DEG = 180 / Math.PI;
+// IMU analysis: a sample is "still" (zero velocity) when the foot is loaded (vGRF > GAIT.ON), |ω| < STILL_W °/s and
+// ||a| − 1 g| < STILL_A; runs shorter than MIN_STILL samples are ignored. KP = tilt-correction gain (rad/s per unit error)
+// while still. Impact window = IMPACT_PRE ms before to IMPACT_POST ms after initial contact.
+// Gyro bias = mean ω over still samples that are also below BIAS_W °/s (≥ 10 of them, else no bias removed).
+const IMU = { STILL_W: 45, STILL_A: 0.15, MIN_STILL: 3, BIAS_W: 8, KP: 3, IMPACT_PRE: 40, IMPACT_POST: 120 };
+const BW_CAL_MS = 3000;      // body-weight calibration: averaging window
+const AXES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
 
 // Firmware channel -> insole site (heel to toe). Coordinates (mm) from A401_Left_Right_Insole_A4_1to1.pdf,
 // X = transverse from outline left edge, Y = heel-to-toe from outline bottom.
@@ -291,6 +361,56 @@ function loadCal() {
 }
 function saveCal() { try { localStorage.setItem("insoleCal_v2", JSON.stringify(cal)); } catch (e) {} }
 
+// Body-weight factors per foot ({k, mass, sumN, cv, at}), the BW-scale toggle and the IMU mounting; kept in this browser.
+let settings = loadSettings();
+function loadSettings() {
+  const d = { bwOn: false, bw: { L: null, R: null }, mount: { fwd: "+Y", up: "+Z" } };
+  try {
+    const s = JSON.parse(localStorage.getItem("insoleSettings_v1"));
+    if (s) {
+      d.bwOn = !!s.bwOn;
+      for (const k of ["L", "R"]) if (s.bw && s.bw[k] && s.bw[k].k > 0) d.bw[k] = s.bw[k];
+      if (s.mount && AXES.includes(s.mount.fwd) && AXES.includes(s.mount.up) && s.mount.fwd[1] !== s.mount.up[1]) d.mount = s.mount;
+    }
+  } catch (e) {}
+  return d;
+}
+function saveSettings() { try { localStorage.setItem("insoleSettings_v1", JSON.stringify(settings)); } catch (e) {} }
+const bwK = key => settings.bw[key] ? settings.bw[key].k : NaN;
+const bwScale = key => settings.bwOn && settings.bw[key] ? settings.bw[key].k : 1;   // multiplier in use for vGRF
+
+// ---------- small 3-D helpers (IMU) ----------
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const norm = a => Math.hypot(a[0], a[1], a[2]);
+// Body frame: X = right, Y = toe (forward), Z = up out of the insole. Rows of M = body axes in sensor coordinates.
+function mountMatrix() {
+  const v = a => { const e = [0, 0, 0]; e["XYZ".indexOf(a[1])] = a[0] === "-" ? -1 : 1; return e; };
+  const f = v(settings.mount.fwd), u = v(settings.mount.up);
+  return [cross(f, u), f, u];
+}
+let mountM = mountMatrix();
+const toBody = (M, v) => [dot(M[0], v), dot(M[1], v), dot(M[2], v)];
+const qmul = (p, q) => [p[0] * q[0] - p[1] * q[1] - p[2] * q[2] - p[3] * q[3], p[0] * q[1] + p[1] * q[0] + p[2] * q[3] - p[3] * q[2],
+  p[0] * q[2] - p[1] * q[3] + p[2] * q[0] + p[3] * q[1], p[0] * q[3] + p[1] * q[2] - p[2] * q[1] + p[3] * q[0]];
+function qrot(q, v) {                         // rotate v by unit quaternion q (body -> world)
+  const u = [q[1], q[2], q[3]], t = cross(u, v).map(x => 2 * x), c = cross(u, t);
+  return [v[0] + q[0] * t[0] + c[0], v[1] + q[0] * t[1] + c[1], v[2] + q[0] * t[2] + c[2]];
+}
+const qinv = q => [q[0], -q[1], -q[2], -q[3]];
+function qFromTo(a, b) {                      // shortest rotation taking unit vector a onto unit vector b
+  const c = cross(a, b), d = dot(a, b);
+  if (d < -0.9999) return [0, 1, 0, 0];
+  const q = [1 + d, c[0], c[1], c[2]], n = Math.hypot(...q);
+  return q.map(x => x / n);
+}
+function qstep(q, w, dt) {                    // integrate body rate w (rad/s) over dt
+  const wn = norm(w), th = wn * dt;
+  if (th < 1e-9) return q;
+  const k = Math.sin(th / 2) / wn, r = qmul(q, [Math.cos(th / 2), w[0] * k, w[1] * k, w[2] * k]), n = Math.hypot(...r);
+  return r.map(x => x / n);
+}
+
 function gOf(mv, base) { return mv > base + DEAD_MV ? (mv / base - 1) / RF * 1e6 : 0; }   // conductance, µS
 function fStatic(G, c) {          // no load history: loading curve (hysteresis on) or the single curve
   if (!(G > 0)) return 0;
@@ -346,6 +466,7 @@ function buildSide(key) {
       <button data-r="ble">Bluetooth</button>
       <button data-r="demo">Demo</button>
       <button data-r="zero" disabled>Zero</button>
+      <button data-r="bwcal" disabled title="Stand still on this foot only and enter your body mass">BW cal</button>
       <button data-r="disc" disabled>Disconnect</button>
     </div>
     <div class="msg" data-r="msg"></div>
@@ -353,10 +474,16 @@ function buildSide(key) {
       <div class="viz"></div>
       <div>
         <div class="stats">
-          <div class="stat"><b data-r="total">—</b><span>vGRF N</span></div>
+          <div class="stat"><b data-r="total">—</b><span data-r="totlbl">vGRF N</span></div>
           <div class="stat"><b data-r="max">—</b><span>Max site</span></div>
           <div class="stat"><b data-r="hz">—</b><span>Rate Hz</span></div>
           <div class="stat"><b data-r="cop">—</b><span>COP x, y mm</span></div>
+        </div>
+        <div class="stats imu">
+          <div class="stat" title="Peak |a| over the last second (200 Hz IMU, includes 1 g gravity)"><b data-r="shock">—</b><span>Shock g</span></div>
+          <div class="stat" title="Foot pitch: + toes up"><b data-r="pitch">—</b><span>Pitch °</span></div>
+          <div class="stat" title="Foot roll: + eversion (lateral edge up), − inversion"><b data-r="ever">—</b><span>Eversion °</span></div>
+          <div class="stat" title="Body-weight factor: vGRF × factor = foot load"><b data-r="bwk">—</b><span data-r="bwlbl">BW ×</span></div>
         </div>
         <table>
           <thead><tr><th>Site</th><th class="col-ch">Ch</th><th>mV</th><th>N</th><th class="barcell"></th></tr></thead>
@@ -413,6 +540,7 @@ function buildSide(key) {
     base: cal[key].map(c => c.base), tare: new Array(7).fill(0), tareG: new Array(7).fill(0),
     hy: Array.from({ length: 7 }, () => ({ on: false })), zeroPending: false, zeroAcc: null,
     count: 0, hz: 0, lastData: 0, footReported: null, dirty: true,
+    imu: null, imuCount: 0, att: { p: null, e: null, t: null }, shock: [], bwAcc: null,
   };
   sides[key] = side;
 
@@ -420,6 +548,7 @@ function buildSide(key) {
   q("ble").onclick = () => connectBLE(side);
   q("demo").onclick = () => connectDemo(side);
   q("zero").onclick = () => startZero(side);
+  q("bwcal").onclick = () => openBwCal(side);
   q("disc").onclick = () => disconnect(side);
   if (!("serial" in navigator)) { q("usb").disabled = true; q("usb").title = "Web Serial not available in this browser"; }
   if (!("bluetooth" in navigator)) { q("ble").disabled = true; q("ble").title = "Web Bluetooth not available in this browser"; }
@@ -448,6 +577,8 @@ function activate(side, kind, closeFn) {
   side.peakN.fill(0); side.peakMV.fill(0);
   for (const r of ["usb", "ble", "demo"]) side.q(r).disabled = true;
   side.q("zero").disabled = false;
+  side.q("bwcal").disabled = false;
+  side.imu = null; side.imuCount = 0; side.att = { p: null, e: null, t: null }; side.shock = []; side.bwAcc = null;
   side.base = cal[side.key].map(c => c.base); side.tare.fill(0); side.tareG.fill(0);
   side.hy.forEach(h => { h.on = false; });
   side.q("disc").disabled = false;
@@ -465,7 +596,9 @@ function deactivate(side, reason) {
   side.q("ble").disabled = !("bluetooth" in navigator);
   side.q("demo").disabled = false;
   side.q("zero").disabled = true;
+  side.q("bwcal").disabled = true;
   side.q("disc").disabled = true;
+  side.imu = null; side.bwAcc = null;
   side.mv.fill(0); side.N.fill(0); side.peakN.fill(0); side.peakMV.fill(0);
   side.copTrail = []; side.copXY = null;
   side.reconnecting = false;
@@ -486,7 +619,8 @@ async function disconnect(side) {
 // ---------- incoming data ----------
 // devT = board time in ms (USB millis, BLE seq × 20 ms, demo none). Mapped onto the PC clock with the smallest
 // observed delay so both feet share one timebase without BLE/USB batching jitter.
-function onSample(side, mvArr, devT) {
+// imu (optional) = [ax, ay, az (g), gx, gy, gz (°/s), apk (g, peak |a| in the frame)] in sensor axes.
+function onSample(side, mvArr, devT, imu) {
   for (let i = 0; i < 7; i++) side.mv[i] = mvArr[i];
   side.count++;
   const now = performance.now();
@@ -525,6 +659,8 @@ function onSample(side, mvArr, devT) {
     Fz += w; mx += x * w; my += y * w;
   }
   side.Fz = Fz;
+  if (imu) liveImu(side, imu, t);
+  if (side.bwAcc) bwCollect(side, Fz, t);
   if (Fz > GAIT.OFF) {
     if (!side.wasOn) side.copTrail = [];          // new foot contact -> new COP path
     side.wasOn = true;
@@ -535,14 +671,34 @@ function onSample(side, mvArr, devT) {
 
   if (recording) {
     const kind = side.conn ? side.conn.kind : "";
-    const r = recording.sides[side.key] || (recording.sides[side.key] = { t: [], N: [], F: [], kind });
-    r.t.push(t); r.N.push(side.N.slice()); r.F.push(Fz);
+    const r = recording.sides[side.key] || (recording.sides[side.key] = { t: [], N: [], F: [], imu: [], kind });
+    r.t.push(t); r.N.push(side.N.slice()); r.F.push(Fz); r.imu.push(imu ? imu.slice() : null);
+    const k = bwK(side.key);
     logRow(recording, side.key, [(t - recording.t0).toFixed(1), side.key, kind,
       ...side.mv.map(v => v.toFixed(0)), ...side.N.map(v => v.toFixed(1)), Fz.toFixed(1),
       side.copXY ? side.copXY[0].toFixed(1) : "", side.copXY ? side.copXY[1].toFixed(1) : "",
-      dev == null ? "" : dev.toFixed(0)].join(","));
+      dev == null ? "" : dev.toFixed(0),
+      ...(imu ? [...imu.slice(0, 3).map(v => v.toFixed(3)), ...imu.slice(3, 6).map(v => v.toFixed(1)), imu[6].toFixed(3)] : ["", "", "", "", "", "", ""]),
+      Number.isFinite(k) ? (Fz * k).toFixed(1) : ""].join(","));
   }
   side.dirty = true;
+}
+
+// Live foot angles (display only): complementary filter, gyro integrated and pulled slowly towards the accelerometer
+// tilt while |a| ≈ 1 g. Pitch + = toes up (about body X); eversion + = lateral edge up (about body Y; left foot's lateral side is −X).
+function liveImu(side, imu, t) {
+  side.imu = imu; side.imuCount++;
+  const a = toBody(mountM, imu), w = toBody(mountM, imu.slice(3, 6)), lat = side.key === "L" ? -1 : 1;
+  const accP = Math.atan2(a[1], a[2]) * DEG, accE = Math.atan2(lat * a[0], a[2]) * DEG;
+  const A = side.att, dt = A.t == null ? 0 : Math.min(0.1, Math.max(0, (t - A.t) / 1000));
+  A.t = t;
+  if (A.p == null) { A.p = accP; A.e = accE; }
+  else {
+    A.p += w[0] * dt; A.e += -lat * w[1] * dt;
+    if (Math.abs(norm(a) - 1) < 0.1) { A.p += 0.04 * (accP - A.p); A.e += 0.04 * (accE - A.e); }
+  }
+  side.shock.push([t, imu[6]]);
+  while (side.shock.length && t - side.shock[0][0] > 1000) side.shock.shift();
 }
 
 // Zero: a channel reading inside VREF_OK is unloaded -> that mV becomes its base (VREF). A channel reading above it is
@@ -587,7 +743,12 @@ function onLine(side, line) {
     const p = line.split(",");
     if (p.length < 9) return;
     const v = p.slice(2, 9).map(Number);
-    if (v.every(Number.isFinite)) onSample(side, v, Number.isFinite(+p[1]) ? +p[1] : null);
+    let imu = null;                                  // v1.1: ax,ay,az (mg), gx,gy,gz (0.1 °/s), apk (mg)
+    if (p.length >= 16) {
+      const r = p.slice(9, 16).map(Number);
+      if (r.every(Number.isFinite)) imu = [r[0] / 1000, r[1] / 1000, r[2] / 1000, r[3] / 10, r[4] / 10, r[5] / 10, r[6] / 1000];
+    }
+    if (v.every(Number.isFinite)) onSample(side, v, Number.isFinite(+p[1]) ? +p[1] : null, imu);
   } else if (line.startsWith("#FOOT,")) {
     footCheck(side, line.charAt(6));
   } else if (/^(t:|S1:)/.test(line)) {
@@ -704,7 +865,14 @@ async function connectBLE(side) {
     });
   } catch (e) { setMsg(side, "Bluetooth: " + e.message); return; }
   const v = new Array(7);
-  let tx = null, stop = false;
+  let tx = null, ix = null, stop = false, imuLast = null;
+  const onImu = ev => {                            // same seq as the FSR packet that follows it
+    const dv = ev.target.value;
+    if (dv.byteLength < 16) return;
+    const r = [];
+    for (let i = 0; i < 7; i++) r.push(dv.getInt16(2 + 2 * i, true));
+    imuLast = { seq: dv.getUint16(0, true), v: [r[0] / 1000, r[1] / 1000, r[2] / 1000, r[3] / 10, r[4] / 10, r[5] / 10, r[6] / 1000] };
+  };
   const onNotify = ev => {
     const dv = ev.target.value, b = side.ble;
     if (dv.byteLength < 16 || !b) return;
@@ -716,7 +884,8 @@ async function connectBLE(side) {
     } else b.seqU = sq;
     b.seq = sq; b.got++;
     for (let i = 0; i < 7; i++) v[i] = dv.getUint16(2 + 2 * i, true);
-    onSample(side, v, b.seqU * 20);                // firmware samples at 50 Hz
+    const im = imuLast && ((sq - imuLast.seq) & 0xffff) <= 1 ? imuLast.v : null;
+    onSample(side, v, b.seqU * 20, im);            // firmware samples at 50 Hz
   };
   const attach = async () => {
     const server = await device.gatt.connect();
@@ -725,6 +894,13 @@ async function connectBLE(side) {
     tx = await svc.getCharacteristic(NUS_TX);
     tx.addEventListener("characteristicvaluechanged", onNotify);
     await tx.startNotifications();
+    if (ix) ix.removeEventListener("characteristicvaluechanged", onImu);
+    ix = null;
+    try {                                          // firmware v1.0 has no IMU characteristic
+      ix = await svc.getCharacteristic(NUS_IMU);
+      ix.addEventListener("characteristicvaluechanged", onImu);
+      await ix.startNotifications();
+    } catch (e) { ix = null; }
   };
   try {
     setMsg(side, "Connecting to " + (device.name || "device") + "…");
@@ -776,12 +952,48 @@ function connectDemo(side) {
         : ph <= ce ? gInv(F, k.aU, k.bU) : gInv(pk, k.aU, k.bU) * Math.pow(F / pk, 1 / k.bD);
       return Math.min(3300, Math.round(base[i] * (1 + G * 1e-6 * RF) + (Math.random() - .5) * 4));
     });
-    onSample(side, mv);
+    onSample(side, mv, null, demoImu(ph, side.key));
   }, 20);
   activate(side, "Demo", () => clearInterval(id));
   side.autoZero = false;
   side.base = base.slice();
   footCheck(side, side.key);
+}
+
+// Simulated foot-mounted IMU for the demo: stride 1.40 m in 1.1 s, toe-out 7°, heel-strike pitch +18°, toe-off −38°,
+// eversion −4° → +6° in stance, 10 cm swing clearance, heel-strike shock. Sensor axes = body axes (toe +Y, up +Z).
+const DEMO_IMU = { L: 1.40, CLEAR: 0.10, FPA: 7, P: [[0, 18], [0.12, 0], [0.40, 0], [0.66, -38], [0.80, -12], [1, 18]],
+  E: [[0, -4], [0.25, 6], [0.5, 1], [0.66, -2], [1, -4]] };
+function demoPose(ph, key) {                       // ph unwrapped (cycles), so position keeps increasing
+  const n = Math.floor(ph);
+  ph -= n;
+  const key2 = (tab, x) => {                       // cosine-eased keyframes
+    for (let i = 1; i < tab.length; i++) if (x <= tab[i][0]) {
+      const [x0, y0] = tab[i - 1], [x1, y1] = tab[i], u = (x - x0) / (x1 - x0);
+      return y0 + (y1 - y0) * (1 - Math.cos(Math.PI * u)) / 2;
+    }
+    return tab[tab.length - 1][1];
+  };
+  const sw = ph < 0.66 ? 0 : (ph - 0.66) / 0.34;
+  const y = DEMO_IMU.L * (n + 10 * sw ** 3 - 15 * sw ** 4 + 6 * sw ** 5), z = DEMO_IMU.CLEAR * Math.sin(Math.PI * sw) ** 2;
+  const th = key2(DEMO_IMU.P, ph) / DEG, ev = key2(DEMO_IMU.E, ph) / DEG, lat = key === "L" ? -1 : 1;
+  const ps = (key === "L" ? 1 : -1) * DEMO_IMU.FPA / DEG;      // toe-out: left foot turned left (+ about z)
+  const ax = (ang, i) => { const q = [Math.cos(ang / 2), 0, 0, 0]; q[i + 1] = Math.sin(ang / 2); return q; };
+  // body -> world = yaw (z) · pitch (x) · roll (y); eversion = lateral edge up
+  const q = qmul(qmul(ax(ps, 2), ax(th, 0)), ax(-lat * ev, 1));
+  return { p: [0, y, z], q };
+}
+function demoImu(ph, key) {
+  const T = 1.1, h = 0.004, dp = h / T;
+  const P0 = demoPose(ph - dp, key), P1 = demoPose(ph, key), P2 = demoPose(ph + dp, key);
+  const acc = [0, 1, 2].map(i => (P2.p[i] - 2 * P1.p[i] + P0.p[i]) / (h * h));
+  const sf = qrot(qinv(P1.q), [acc[0] / G0, acc[1] / G0, acc[2] / G0 + 1]);   // specific force in body axes, g
+  const dq = qmul(qinv(P0.q), P2.q), sg = dq[0] < 0 ? -1 : 1;                 // body rate ≈ vec(q⁻¹·dq) / h
+  const w = [1, 2, 3].map(i => sg * dq[i] / h * DEG);
+  const imp = ph < 0.04 ? 2.6 * Math.exp(-ph * T / 0.012) : 0;              // heel-strike transient (g)
+  const nz = () => (Math.random() - 0.5) * 0.02;
+  return [sf[0] + nz(), sf[1] + nz(), sf[2] + 0.4 * imp + nz(), ...w.map(x => x + (Math.random() - 0.5) * 1.5),
+    norm(sf) + imp + Math.abs(nz())];
 }
 
 // ---------- rendering ----------
@@ -824,7 +1036,17 @@ function render() {
       if (N > maxV) { maxV = N; maxI = i; }
     }
     const hasData = active && s.count > 0;
-    s.q("total").textContent = hasData ? total.toFixed(0) : "—";
+    const k = bwK(key), sc = bwScale(key);
+    s.q("total").textContent = hasData ? (total * sc).toFixed(0) : "—";
+    s.q("totlbl").textContent = sc !== 1 ? `vGRF N (Σ ${total.toFixed(0)} × ${sc.toFixed(2)})` : "vGRF N";
+    s.q("bwk").textContent = Number.isFinite(k) ? "×" + k.toFixed(2) : "—";
+    const mass = settings.bw[key] ? settings.bw[key].mass : numIn("inMass");
+    s.q("bwlbl").textContent = !Number.isFinite(k) ? "BW × (BW cal)" : !settings.bwOn ? "BW × · off"
+      : hasData && mass > 0 ? `BW × · ${(total * k / (mass * G0) * 100).toFixed(0)} %BW` : "BW × · on";
+    const im = hasData && s.imu && performance.now() - s.lastData < 1500;
+    s.q("shock").textContent = im ? Math.max(...s.shock.map(x => x[1])).toFixed(2) : "—";
+    s.q("pitch").textContent = im && s.att.p != null ? s.att.p.toFixed(1) : "—";
+    s.q("ever").textContent = im && s.att.e != null ? s.att.e.toFixed(1) : "—";
     s.q("max").textContent = hasData && maxI >= 0 ? `${SITES[maxI].id} ${maxV.toFixed(0)}` : "—";
     if (hasData && s.copXY) {
       const [cx, cy] = s.copXY;
@@ -842,7 +1064,7 @@ function render() {
       const loss = lossPct(s);
       if (s.reconnecting) setStatus(s, "BLE · reconnecting…", "warn");
       else if (s.lastData && now - s.lastData > 1500) setStatus(s, `${s.conn.kind} · no data`, "warn");
-      else if (s.count > 0) setStatus(s, `${s.conn.kind} · live${loss >= 0.05 ? ` · ${loss.toFixed(1)} % lost` : ""}${peakHold ? " · peak" : ""}`,
+      else if (s.count > 0) setStatus(s, `${s.conn.kind} · live${s.imuCount ? " · IMU" : " · no IMU"}${loss >= 0.05 ? ` · ${loss.toFixed(1)} % lost` : ""}${peakHold ? " · peak" : ""}`,
         loss > 5 ? "warn" : "on");
     }
   }
@@ -901,7 +1123,7 @@ function downloadText(name, text) { downloadBlob(name, new Blob([text], { type: 
 // so a long Bluetooth session on a laptop or phone survives a closed tab, a crash or a dropped link. Finished logs
 // stay under "Logs" (download / share / delete) ----------
 const CSV_HEAD = ["t_ms", "foot", "src", ...SITES.map(s => s.id + "_mV"), ...SITES.map(s => s.id + "_N"),
-  "Fz_N", "COPx_mm", "COPy_mm", "dev_ms"].join(",");
+  "Fz_N", "COPx_mm", "COPy_mm", "dev_ms", "ax_g", "ay_g", "az_g", "gx_dps", "gy_dps", "gz_dps", "apk_g", "Fz_BW_N"].join(",");
 function csvMeta() {
   const f = a => a.map(v => v.toFixed(1)).join("/");
   const ble = s => s.ble ? `${s.ble.lost}/${s.ble.got + s.ble.lost} lost, ${s.ble.drops} drops` : "-";
@@ -909,7 +1131,9 @@ function csvMeta() {
     ? `${c.aU.toFixed(4)}/${c.bU.toFixed(4)}/${c.aD.toFixed(4)}/${c.bD.toFixed(4)}` : `${c.a.toFixed(4)}/${c.b.toFixed(4)}`).join(" ");
   return `# Insole Force Monitor, RF ${RF}, base L=${f(sides.L.base)} R=${f(sides.R.base)}` +
     `, tare_N L=${f(sides.L.tare)} R=${f(sides.R.tare)}` +
-    `, Fz = sum(Fi), BLE L=${ble(sides.L)} R=${ble(sides.R)}, dev_ms = board time\n` +
+    `, Fz = sum(Fi), BLE L=${ble(sides.L)} R=${ble(sides.R)}, dev_ms = board time` +
+    `, BW factor L=${one(bwK("L"), 4)} R=${one(bwK("R"), 4)} (Fz_BW_N = Fz × factor, scaling ${settings.bwOn ? "on" : "off"} in the app)` +
+    `, IMU sensor axes (toe ${settings.mount.fwd}, up ${settings.mount.up}), apk = peak |a| per 20 ms frame\n` +
     `# cal ${cal.hyst ? "hysteresis, per channel aU/bU/aD/bD (loading / unloading F = a*G^b)" : "single curve, per channel a/b"}` +
     `, G uS = (mV/base-1)/RF*1e6. L: ${cc("L")}  R: ${cc("R")}`;
 }
@@ -1193,13 +1417,16 @@ function analyzeStep(t, N, F, xy, c) {
 function analyzeFoot(key, buf) {
   const { t, N } = buf;
   const F = buf.F;                                  // vGRF per sample (Σ sensor forces)
+  const sc = bwScale(key), Fs = sc === 1 ? F : F.map(v => v * sc);   // BW scaling applies to vGRF values, not to detection
   const contacts = findContacts(t, F);
   const xy = SITES.map(S => S[key]);
   const steps = [];
+  const im = imuAnalyze(key, buf, contacts);
   let partial = 0;
   contacts.forEach((c, k) => {
     if (c.partial || c.to - c.ic < GAIT.MIN_STANCE) { partial++; return; }
-    const st = analyzeStep(t, N, F, xy, c);
+    const st = analyzeStep(t, N, Fs, xy, c);
+    if (im && im.per[k]) Object.assign(st, im.per[k]);
     const next = contacts[k + 1];
     if (next && next.ic - c.ic <= GAIT.MAX_STRIDE) {
       st.stride = next.ic - c.ic;
@@ -1208,7 +1435,144 @@ function analyzeFoot(key, buf) {
     }
     steps.push(st);
   });
-  return { key, t0: t[0], t1: t[t.length - 1], contacts, steps, partial };
+  return { key, t0: t[0], t1: t[t.length - 1], contacts, steps, partial, scale: sc, imu: im };
+}
+
+// ---------- IMU analysis of a recording (foot-mounted BMI270, one frame per FSR sample) ----------
+// 1. Sensor axes -> body axes (X right, Y toe, Z up) from the mounting setting. Gyro bias = mean ω while still.
+// 2. Orientation: gyro integrated as a quaternion from the first still phase (gravity sets the tilt; heading is arbitrary),
+//    with a tilt correction towards gravity only while the foot is still (Mahony, gain KP).
+// 3. Zero-velocity update (ZUPT): acceleration rotated to the world frame, gravity removed and integrated to velocity; velocity is
+//    reset to 0 in every still (foot-flat) phase and the drift left at the end of each swing is removed linearly; then position.
+// 4. Per step: stride = horizontal displacement between the mid-points of consecutive foot-flat phases; foot angles are
+//    relative to that step's foot-flat orientation. Impact = peak |a| (200 Hz peak per frame) around initial contact.
+function imuAnalyze(key, buf, contacts) {
+  const { t, F } = buf, raw = buf.imu || [], n = t.length;
+  const have = raw.filter(Boolean).length;
+  if (have < 20) return null;
+  if (have < 0.8 * n) return { per: [], note: `IMU data in only ${(100 * have / n).toFixed(0)} % of samples, so IMU results were skipped.` };
+  const M = mountMatrix(), lat = key === "L" ? [-1, 0, 0] : [1, 0, 0];
+  const A = new Array(n), W = new Array(n), PK = new Float64Array(n);
+  let last = raw.find(Boolean);
+  for (let i = 0; i < n; i++) {
+    if (raw[i]) last = raw[i];
+    A[i] = toBody(M, last); W[i] = toBody(M, last.slice(3, 6)).map(x => x / DEG); PK[i] = last[6];
+  }
+  const runsOf = () => {
+    const out = [];
+    let s0 = -1;
+    for (let i = 0; i <= n; i++) {
+      const still = i < n && F[i] > GAIT.ON && norm(W[i]) < IMU.STILL_W / DEG && Math.abs(norm(A[i]) - 1) < IMU.STILL_A;
+      if (still && s0 < 0) s0 = i;
+      if (!still && s0 >= 0) { if (i - s0 >= IMU.MIN_STILL) out.push({ s: s0, e: i - 1 }); s0 = -1; }
+    }
+    return out;
+  };
+  let runs = runsOf();
+  if (!runs.length) return { per: [], note: `No still foot-flat phase found (vGRF > ${GAIT.ON} N with |ω| < ${IMU.STILL_W} °/s), so IMU results were skipped.` };
+  const bias = [0, 0, 0];
+  let cnt = 0;
+  for (const r of runs) for (let i = r.s; i <= r.e; i++) {
+    if (norm(W[i]) * DEG >= IMU.BIAS_W) continue;
+    for (let k = 0; k < 3; k++) bias[k] += W[i][k];
+    cnt++;
+  }
+  for (let k = 0; k < 3; k++) bias[k] = cnt >= 10 ? bias[k] / cnt : 0;
+  for (let i = 0; i < n; i++) W[i] = W[i].map((x, k) => x - bias[k]);
+  runs = runsOf();
+  const still = new Uint8Array(n);
+  for (const r of runs) for (let i = r.s; i <= r.e; i++) still[i] = 1;
+  // orientation + velocity
+  const r0 = runs[0], dtOf = i => Math.min(0.1, Math.max(0, (t[i] - t[i - 1]) / 1000));
+  let g = [0, 0, 0];
+  for (let i = r0.s; i <= r0.e; i++) g = g.map((x, k) => x + A[i][k]);
+  let q = qFromTo(g.map(x => x / norm(g)), [0, 0, 1]);
+  const Q = new Array(n).fill(null), Vr = new Array(n).fill(null);
+  let v = [0, 0, 0], awPrev = null;
+  for (let i = r0.s; i < n; i++) {
+    const dt = i > r0.s ? dtOf(i) : 0;
+    let w = W[i];
+    if (still[i]) {
+      const vp = qrot(qinv(q), [0, 0, 1]), an = norm(A[i]), e = cross(A[i].map(x => x / an), vp);
+      w = w.map((x, k) => x + IMU.KP * e[k]);
+    }
+    if (dt) q = qstep(q, w, dt);
+    Q[i] = q;
+    const aw = qrot(q, A[i]);
+    aw[2] -= 1;
+    const am = aw.map(x => x * G0);
+    if (awPrev && dt) v = v.map((x, k) => x + (awPrev[k] + am[k]) / 2 * dt);
+    awPrev = am;
+    Vr[i] = v.slice();
+    if (still[i]) v = [0, 0, 0];
+  }
+  // linear de-drift of each swing, then position
+  const V = Vr.map(x => x && x.slice()), broken = new Uint8Array(runs.length);
+  runs.forEach((r, j) => {
+    for (let i = r.s; i <= r.e; i++) V[i] = [0, 0, 0];
+    const nx = runs[j + 1];
+    if (!nx) return;
+    const a = r.e, b = nx.s, T = t[b] - t[a];
+    if (T > GAIT.MAX_STRIDE) { broken[j] = 1; return; }
+    for (let i = a + 1; i < b; i++) { const f = (t[i] - t[a]) / T; V[i] = Vr[i].map((x, k) => x - Vr[b][k] * f); }
+  });
+  const P = new Array(n).fill(null);
+  P[r0.s] = [0, 0, 0];
+  for (let i = r0.s + 1; i < n; i++) { const dt = dtOf(i); P[i] = P[i - 1].map((x, k) => x + (V[i - 1][k] + V[i][k]) / 2 * dt); }
+  const fwd = i => qrot(Q[i], [0, 1, 0]);
+  const pitch = i => Q[i] ? Math.asin(Math.max(-1, Math.min(1, fwd(i)[2]))) * DEG : NaN;
+  const ever = i => Q[i] ? Math.asin(Math.max(-1, Math.min(1, qrot(Q[i], lat)[2]))) * DEG : NaN;
+  // per contact: its longest still run
+  const cr = contacts.map(c => {
+    let best = -1;
+    runs.forEach((r, j) => {
+      if (r.e < c.s || r.s > c.e) return;
+      if (best < 0 || r.e - r.s > runs[best].e - runs[best].s) best = j;
+    });
+    return best;
+  });
+  const per = contacts.map((c, k) => {
+    const j = cr[k], o = {};
+    let pk = 0;                                   // impact: peak |a| around initial contact
+    for (let i = c.s; i >= 0 && t[i] >= c.ic - IMU.IMPACT_PRE; i--) pk = Math.max(pk, PK[i]);
+    for (let i = c.s; i < n && t[i] <= c.ic + IMU.IMPACT_POST; i++) pk = Math.max(pk, PK[i]);
+    o.shock = pk;
+    if (j < 0 || !Q[c.s]) return o;
+    const r = runs[j], mid = (r.s + r.e) >> 1;
+    let fp = 0, fe = 0, fh = [0, 0];
+    for (let i = r.s; i <= r.e; i++) { fp += pitch(i); fe += ever(i); const f = fwd(i); fh[0] += f[0]; fh[1] += f[1]; }
+    fp /= r.e - r.s + 1; fe /= r.e - r.s + 1;
+    const toI = Math.min(c.e + 1, n - 1);
+    o.strikeAng = pitch(c.s) - fp;
+    o.toAng = pitch(toI) - fp;
+    o.evIC = ever(c.s) - fe;
+    let evPk = -Infinity;
+    for (let i = c.s; i <= r.e; i++) evPk = Math.max(evPk, ever(i) - fe);
+    o.evPeak = evPk; o.evExc = evPk - o.evIC;
+    const nk = cr[k + 1], nc = contacts[k + 1];
+    if (nk == null || nk < 0 || nk === j || !nc || nc.ic - c.ic > GAIT.MAX_STRIDE) return o;
+    for (let jj = j; jj < nk; jj++) if (broken[jj]) return o;
+    const r2 = runs[nk], mid2 = (r2.s + r2.e) >> 1;
+    const d = [P[mid2][0] - P[mid][0], P[mid2][1] - P[mid][1]];
+    o.imuStride = Math.hypot(d[0], d[1]);
+    o.imuSpeed = o.imuStride / ((nc.ic - c.ic) / 1000);
+    let cl = 0, wmax = 0;
+    for (let i = mid + 1; i < mid2; i++) {
+      const base = P[mid][2] + (P[mid2][2] - P[mid][2]) * (i - mid) / (mid2 - mid);
+      cl = Math.max(cl, P[i][2] - base);
+      if (i > r.e && i < r2.s) wmax = Math.max(wmax, Math.abs(W[i][0]) * DEG);
+    }
+    o.clear = cl * 100;
+    o.swingW = wmax;
+    const ang = Math.atan2(d[0] * fh[1] - d[1] * fh[0], d[0] * fh[0] + d[1] * fh[1]) * DEG;
+    o.fpa = key === "L" ? ang : -ang;            // + = toe-out
+    const tt = [], pp = [], ee = [];                // foot pitch / eversion over the gait cycle (IC -> next IC)
+    for (let i = c.s; i <= nc.s; i++) { tt.push((t[i] - c.ic) / (nc.ic - c.ic) * 100); pp.push(pitch(i) - fp); ee.push(ever(i) - fe); }
+    o.pitchCurve = PCT.map(x => interp(tt, pp, x));
+    o.everCurve = PCT.map(x => interp(tt, ee, x));
+    return o;
+  });
+  return { per, note: "", biasDps: bias.map(x => x * DEG), stillRuns: runs.length };
 }
 
 // Both feet: step time (this foot's IC -> other foot's next IC) and double support (overlap of both stances).
@@ -1254,6 +1618,7 @@ function summarize(rec) {
   const tAll = Object.values(rec.sides).flatMap(s => [s.t[0], s.t[s.t.length - 1]]);
   return {
     feet, cad, speed, method, strideLen, stepLen, mass, stepTimes,
+    imuStride: finite(all.map(s => s.imuStride)), imuSpeed: finite(all.map(s => s.imuSpeed)), shock: finite(all.map(s => s.shock)),
     ds: finite(all.map(s => s.dsPct)), dur: (Math.max(...tAll) - Math.min(...tAll)) / 1000, t0: rec.t0, startedAt: rec.startedAt,
   };
 }
@@ -1290,6 +1655,25 @@ function vgrfChart(steps, color) {
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2"/>
     <text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">% stance (FF foot flat, HO heel-off)</text>
     <text x="10" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 10 ${(T + H - B) / 2})">vGRF N</text></svg>`;
+}
+
+function angleChart(curves, color, label, evTxt) {     // mean ± SD of per-stride angle curves, % gait cycle
+  const W = 340, H = 170, L = 42, R = 10, T = 12, B = 28;
+  const m = PCT.map(i => mean(curves.map(c => c[i]))), d = PCT.map(i => sdev(curves.map(c => c[i])));
+  const lim = niceMax(Math.max(10, ...m.map((v, i) => Math.abs(v) + d[i])));
+  const X = p => L + p / 100 * (W - L - R), Y = v => T + (lim - v) / (2 * lim) * (H - T - B);
+  const up = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] + d[i]).toFixed(1)}`);
+  const lo = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] - d[i]).toFixed(1)}`).reverse();
+  const line = PCT.map(i => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(m[i]).toFixed(1)}`).join("");
+  let g = "";
+  for (const v of [-lim, 0, lim]) g += `<line class="axis" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+  for (const p of [0, 25, 50, 75, 100]) g += `<text x="${X(p)}" y="${H - B + 13}" text-anchor="middle">${p}</text>`;
+  if (Number.isFinite(evTxt)) g += `<line class="ev" x1="${X(evTxt)}" x2="${X(evTxt)}" y1="${T}" y2="${H - B}"/><text x="${X(evTxt) + 3}" y="${T + 9}">TO</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label} over the gait cycle">
+    ${g}<polygon points="${up.join(" ")} ${lo.join(" ")}" fill="${color}" opacity=".18"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="2"/>
+    <text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">% gait cycle (heel strike → next heel strike)</text>
+    <text x="10" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 10 ${(T + H - B) / 2})">${label} °</text></svg>`;
 }
 
 function insoleResultSVG(key, peakN, peakKPa, copX, copY, color) {
@@ -1332,7 +1716,34 @@ function footHTML(key, f, S) {
   const stepRows = st.map((s, i) => `<tr><td>${i + 1}</td><td>${((s.ic - S.t0) / 1000).toFixed(2)}</td><td>${s.stance.toFixed(0)}</td>
     <td>${one(s.swing)}</td><td>${one(s.stride)}</td><td class="l">${s.strike}</td><td>${one(s.ffPct)}</td><td>${one(s.hoPct)}</td>
     <td>${s.p1.toFixed(0)}</td><td>${s.valley.toFixed(0)}</td><td>${s.p2.toFixed(0)}</td><td>${s.imp.toFixed(1)}</td>
-    <td>${Math.max(...s.peakKPa).toFixed(0)}</td><td>${one(s.apRange)}</td></tr>`).join("");
+    <td>${Math.max(...s.peakKPa).toFixed(0)}</td><td>${one(s.apRange)}</td><td>${one(s.shock, 2)}</td><td>${one(s.imuStride, 2)}</td>
+    <td>${one(s.strikeAng, 1)}</td><td>${one(s.toAng, 1)}</td><td>${one(s.evPeak, 1)}</td><td>${one(s.fpa, 1)}</td></tr>`).join("");
+  const kgN = Number.isFinite(S.mass) ? S.mass * G0 : NaN;
+  const bwps = a => { a = finite(a); return Number.isFinite(kgN) && a.length ? ` (${(mean(a) / kgN).toFixed(1)} BW/s)` : ""; };
+  const im = f.imu, withP = st.filter(s => s.pitchCurve), cyc = finite(col("stancePct"));
+  const imuBlock = !im ? `<h4>IMU</h4><div class="empty">No IMU data in this recording (firmware v1.0, IMU not found, or FSR_Demo_N).</div>`
+    : im.note ? `<h4>IMU</h4><div class="empty">${im.note}</div>` : `
+    ${rows("Impact", [
+      ["Heel-strike shock, peak |a| (200 Hz, incl. 1 g)", fmt(col("shock"), 2) + " g"],
+      ["Impact force, vGRF peak 1" + (f.scale !== 1 ? " (BW-scaled)" : ""), fmt(col("p1")) + " N" + bw(col("p1"), S.mass)],
+      ["Loading rate (heel strike → peak 1)", fmt(col("lr")) + " N/s" + bwps(col("lr"))],
+    ])}
+    ${rows("Stride (IMU, zero-velocity updates)", [
+      ["Stride length", fmt(col("imuStride"), 2) + " m"],
+      ["Walking speed (stride length / stride time)", fmt(col("imuSpeed"), 2) + " m/s"],
+      ["Foot clearance, max height in swing", fmt(col("clear"), 1) + " cm"],
+      ["Peak pitch rate in swing", fmt(col("swingW")) + " °/s"],
+    ])}
+    ${rows("Foot rotation (IMU, relative to foot flat)", [
+      ["Foot strike angle (pitch at heel strike, + toes up)", fmt(col("strikeAng"), 1) + " °"],
+      ["Toe-off angle (pitch at toe-off, − toes down)", fmt(col("toAng"), 1) + " °"],
+      ["Eversion at heel strike (− = inverted)", fmt(col("evIC"), 1) + " °"],
+      ["Peak eversion in loading / excursion", `${fmt(col("evPeak"), 1)} / ${fmt(col("evExc"), 1)} °`],
+      ["Foot progression angle (+ toe-out, − toe-in)", fmt(col("fpa"), 1) + " °"],
+    ])}
+    ${withP.length ? `<div class="res-pair"><div>${angleChart(withP.map(s => s.pitchCurve), color, "Foot pitch", mean(cyc))}</div>
+      <div>${angleChart(withP.map(s => s.everCurve), color, "Eversion", mean(cyc))}</div></div>` : ""}
+    <div class="res-note">IMU: ${im.stillRuns} foot-flat phases, gyro bias ${im.biasDps.map(v => v.toFixed(1)).join(" / ")} °/s (x/y/z, body axes).</div>`;
   return `<div class="res-foot">${head}
     <div class="res-note">${st.length} steps analysed${f.partial ? `, ${f.partial} partial / short contacts skipped` : ""}.</div>
     <div class="res-row">
@@ -1355,7 +1766,7 @@ function footHTML(key, f, S) {
       ["Step time (to other foot)", fmt(col("stepTime")) + " ms"],
       ["Double / single support", `${fmt(col("dsPct"), 1)} / ${fmt(col("ssPct"), 1)} % stride`],
     ])}
-    ${rows("vGRF (Σ sensor forces)", [
+    ${rows(f.scale !== 1 ? `vGRF (Σ sensor forces × BW factor ${f.scale.toFixed(2)})` : "vGRF (Σ sensor forces)", [
       ["Peak 1 (loading)", fmt(col("p1")) + " N" + bw(col("p1"), S.mass)],
       ["Valley (midstance)", fmt(col("valley")) + " N" + bw(col("valley"), S.mass)],
       ["Peak 2 (push-off)", fmt(col("p2")) + " N" + bw(col("p2"), S.mass)],
@@ -1369,13 +1780,15 @@ function footHTML(key, f, S) {
       ["COP excursion AP / ML", `${fmt(col("apRange"))} / ${fmt(col("mlRange"))} mm`],
       ["COP mean velocity", fmt(col("copVel")) + " mm/s"],
     ])}
+    ${imuBlock}
     <h4>Per sensor (mean of steps)</h4>
     <table><thead><tr><th>Site</th><th>Peak N</th><th>Peak kPa</th><th>PTI kPa·s</th></tr></thead><tbody>
       ${SITES.map((s, k) => `<tr><td>${s.id}</td><td>${meanPeakN[k].toFixed(0)}</td><td>${meanKPa[k].toFixed(0)}</td><td>${meanPti[k].toFixed(0)}</td></tr>`).join("")}
     </tbody></table>
     <details><summary>Per-step table (${st.length})</summary><div class="scroll"><table>
       <thead><tr><th>#</th><th>IC s</th><th>Stance ms</th><th>Swing ms</th><th>Stride ms</th><th class="l">Strike</th><th>FF %</th><th>HO %</th>
-      <th>Peak1 N</th><th>Valley N</th><th>Peak2 N</th><th>Impulse N·s</th><th>Max kPa</th><th>COP AP mm</th></tr></thead>
+      <th>Peak1 N</th><th>Valley N</th><th>Peak2 N</th><th>Impulse N·s</th><th>Max kPa</th><th>COP AP mm</th>
+      <th>Shock g</th><th>Stride m</th><th>Strike °</th><th>TO °</th><th>Ever pk °</th><th>FPA °</th></tr></thead>
       <tbody>${stepRows}</tbody></table></div></details>
   </div>`;
 }
@@ -1398,14 +1811,22 @@ function showResults(rec, ongoing) {
       ${tile(one(S.strideLen, 2), "Stride length m")}
       ${tile(fmt(S.stepTimes), "Step time ms")}
       ${tile(fmt(S.ds, 1), "Double support %")}
+      ${tile(fmt(S.imuStride, 2), "Stride length IMU m")}
+      ${tile(fmt(S.imuSpeed, 2), "Speed IMU m/s")}
+      ${tile(fmt(S.shock, 2), "Heel-strike shock g")}
       ${tile(`${nL} / ${nR}`, "Steps L / R")}
       ${tile(one(S.dur, 1), "Recorded s")}
     </div>
     <div class="res-grid">${footHTML("L", S.feet.L, S)}${footHTML("R", S.feet.R, S)}</div>
-    <div class="res-note" style="margin-top:12px">vGRF = Σ Fᵢ, the sum of the 7 calibrated sensor forces (no area or body-weight scaling):
-      it counts only the load on the sensors, so it reads below the true foot load. Contact: vGRF &gt; ${GAIT.ON} N
+    <div class="res-note" style="margin-top:12px">vGRF = Σ Fᵢ, the sum of the 7 calibrated sensor forces${
+      ["L", "R"].some(k => S.feet[k] && S.feet[k].scale !== 1)
+        ? `, multiplied by each foot's body-weight factor (BW scale on: L ${one(bwScale("L"), 2)} · R ${one(bwScale("R"), 2)}; factor = body weight / Σ Fᵢ standing on one foot, so it is exact at 1 BW and approximate elsewhere)`
+        : ` (no area or body-weight scaling): it counts only the load on the sensors, so it reads below the true foot load`}. Contact: vGRF &gt; ${GAIT.ON} N
       (start/end at ${GAIT.OFF} N). Foot flat: rearfoot (S1+S4) and forefoot (S13+S10+S14) both &gt; ${GAIT.REG} N. Heel-off: rearfoot back below ${GAIT.REG} N.
-      Pressure = sensor force / 5.07 cm² active area. COP in mm, x = transverse from the insole's left edge, y = heel → toe.</div>`;
+      Pressure = sensor force / 5.07 cm² active area. COP in mm, x = transverse from the insole's left edge, y = heel → toe.
+      IMU (BMI270, 50 Hz frames): stride by zero-velocity-update integration (velocity reset in every foot-flat phase, swing drift removed
+      linearly); angles from the integrated gyro with gravity tilt correction while the foot is flat. Toe axis ${settings.mount.fwd}, up axis ${settings.mount.up}
+      (Calibration → IMU mounting). Not yet validated against a reference system.</div>`;
   resultsEl.hidden = false;
   document.getElementById("resClose").onclick = () => { resultsEl.hidden = true; };
   document.getElementById("resExport").onclick = () => exportSteps(S);
@@ -1415,7 +1836,9 @@ function showResults(rec, ongoing) {
 function exportSteps(S) {
   const head = ["foot", "step", "ic_s", "toeoff_s", "stance_ms", "swing_ms", "stride_ms", "stance_pct", "step_time_ms", "double_support_pct",
     "strike", "footflat_pct", "heeloff_pct", "peak1_N", "valley_N", "peak2_N", "loading_rate_Nps", "impulse_Ns", "contact_area_cm2",
-    "cop_ap_mm", "cop_ml_mm", "cop_vel_mmps", ...SITES.map(s => s.id + "_peak_kPa"), ...SITES.map(s => s.id + "_PTI_kPas")];
+    "cop_ap_mm", "cop_ml_mm", "cop_vel_mmps", ...SITES.map(s => s.id + "_peak_kPa"), ...SITES.map(s => s.id + "_PTI_kPas"),
+    "bw_scale", "shock_g", "imu_stride_m", "imu_speed_mps", "clearance_cm", "swing_pitch_rate_dps", "strike_angle_deg", "toeoff_angle_deg",
+    "ever_ic_deg", "ever_peak_deg", "ever_exc_deg", "fpa_deg"];
   const lines = [`# speed_mps=${one(S.speed, 3)}, cadence=${one(S.cad, 1)}, step_len_m=${one(S.stepLen, 3)}, stride_len_m=${one(S.strideLen, 3)}, ${S.method}`, head.join(",")];
   for (const k of ["L", "R"]) {
     const f = S.feet[k];
@@ -1424,7 +1847,9 @@ function exportSteps(S) {
       s.stance.toFixed(0), one(s.swing), one(s.stride), one(s.stancePct, 1), one(s.stepTime), one(s.dsPct, 1), s.strike,
       one(s.ffPct, 1), one(s.hoPct, 1), s.p1.toFixed(1), s.valley.toFixed(1), s.p2.toFixed(1), s.lr.toFixed(0), s.imp.toFixed(2),
       s.area.toFixed(1), one(s.apRange, 1), one(s.mlRange, 1), one(s.copVel, 0),
-      ...s.peakKPa.map(v => v.toFixed(0)), ...s.pti.map(v => v.toFixed(1))].map(v => v === "—" ? "" : v).join(",")));
+      ...s.peakKPa.map(v => v.toFixed(0)), ...s.pti.map(v => v.toFixed(1)), f.scale.toFixed(4), one(s.shock, 3), one(s.imuStride, 3),
+      one(s.imuSpeed, 3), one(s.clear, 1), one(s.swingW, 0), one(s.strikeAng, 1), one(s.toAng, 1), one(s.evIC, 1), one(s.evPeak, 1),
+      one(s.evExc, 1), one(s.fpa, 1)].map(v => v === "—" ? "" : v).join(",")));
   }
   downloadText(`insole_steps_${stamp(S.startedAt)}.csv`, lines.join("\n"));
 }
@@ -1480,8 +1905,12 @@ function readCalGrid() {
   });
   return out;
 }
-document.getElementById("calHyst").onchange = () => fillCalGrid(readCalGrid());
-document.getElementById("calBtn").onclick = () => { document.getElementById("calReport").textContent = ""; fillCalGrid(cal); dlg.showModal(); };
+document.getElementById("calHyst").onchange = () => { fillCalGrid(readCalGrid()); if (lastCheck) renderCheck(lastCheck.sets, lastCheck.title); };
+document.getElementById("calBtn").onclick = () => {
+  document.getElementById("calReport").textContent = ""; fillCalGrid(cal); fillMount();
+  lastCheck = { sets: builtinSets(), title: "Built-in UTM data" };
+  dlg.showModal(); renderCheck(lastCheck.sets, lastCheck.title);
+};
 document.getElementById("calCancel").onclick = () => dlg.close();
 document.getElementById("calDefaults").onclick = () => {
   calNotes = { L: DEFAULT_CAL.map(c => c.note), R: DEFAULT_CAL.map(c => c.note) };
@@ -1607,10 +2036,233 @@ document.getElementById("calFile").onchange = async ev => {
   } catch (e) { rep.textContent = `Could not read ${file.name}: ${e.message}`; }
 };
 
+// ---------- body-weight calibration ----------
+// Standing still on one foot puts the whole body weight on that insole: factor k = m·g / mean(Σ Fᵢ) over 3 s.
+const bwDlg = document.getElementById("bwDlg"), bwBtn = document.getElementById("bwBtn");
+let bwSide = null, bwResult = null;
+function renderBwBtn() {
+  bwBtn.setAttribute("aria-pressed", settings.bwOn);
+  bwBtn.textContent = `BW scale: ${settings.bwOn ? "on" : "off"} (L ${Number.isFinite(bwK("L")) ? "×" + bwK("L").toFixed(2) : "—"} · R ${Number.isFinite(bwK("R")) ? "×" + bwK("R").toFixed(2) : "—"})`;
+}
+function refreshAll() {
+  for (const k of ["L", "R"]) sides[k].dirty = true;
+  if (lastRec && !resultsEl.hidden) showResults(lastRec, lastRec === recording);
+}
+bwBtn.onclick = () => { settings.bwOn = !settings.bwOn; saveSettings(); renderBwBtn(); refreshAll(); };
+function openBwCal(side) {
+  bwSide = side; bwResult = null; side.bwAcc = null;
+  const me = side.key === "L" ? "left" : "right", other = side.key === "L" ? "right" : "left", cur = settings.bw[side.key];
+  document.getElementById("bwTitle").textContent = `Body-weight calibration: ${me} foot`;
+  document.getElementById("bwHow").innerHTML = `Type your body mass, stand still on your <b>${me}</b> foot only (${other} foot off the ground;
+    touch a wall lightly for balance without leaning on it), then press Start. Σ sensor force is averaged for ${BW_CAL_MS / 1000} s.`;
+  const m = cur ? cur.mass : numIn("inMass");
+  document.getElementById("bwMass").value = Number.isFinite(m) ? m : "";
+  document.getElementById("bwRes").textContent = cur
+    ? `Current factor ×${cur.k.toFixed(3)} (${cur.mass} kg, Σ ${cur.sumN.toFixed(0)} N, ${new Date(cur.at).toLocaleString()}).`
+    : "No factor set for this foot yet.";
+  document.getElementById("bwUse").disabled = true;
+  document.getElementById("bwStart").disabled = false;
+  document.getElementById("bwProg").style.width = "0";
+  bwDlg.showModal();
+  bwTick();
+}
+function bwTick() {
+  if (!bwDlg.open || !bwSide) return;
+  const s = bwSide, o = sides[s.key === "L" ? "R" : "L"];
+  document.getElementById("bwLive").textContent = !s.conn ? "Foot disconnected"
+    : `Σ ${s.Fz.toFixed(0)} N` + (o.conn ? `  ·  other foot Σ ${o.Fz.toFixed(0)} N` : "");
+  if (s.bwAcc && s.bwAcc.t0 != null)
+    document.getElementById("bwProg").style.width = Math.min(100, (s.bwAcc.tl - s.bwAcc.t0) / BW_CAL_MS * 100) + "%";
+  requestAnimationFrame(bwTick);
+}
+document.getElementById("bwStart").onclick = () => {
+  const mass = parseFloat(document.getElementById("bwMass").value);
+  const res = document.getElementById("bwRes");
+  if (!(mass >= 20 && mass <= 250)) { res.textContent = "Enter a body mass between 20 and 250 kg first."; return; }
+  if (!bwSide || !bwSide.conn) { res.textContent = "Connect this foot first."; return; }
+  bwSide.bwAcc = { mass, t0: null, tl: null, v: [], o: [] };
+  bwResult = null;
+  document.getElementById("bwUse").disabled = true;
+  document.getElementById("bwStart").disabled = true;
+  res.textContent = "Measuring… stand still.";
+};
+function bwCollect(side, Fz, t) {
+  const a = side.bwAcc, o = sides[side.key === "L" ? "R" : "L"];
+  if (a.t0 == null) a.t0 = t;
+  a.tl = t; a.v.push(Fz);
+  if (o.conn) a.o.push(o.Fz);
+  if (t - a.t0 < BW_CAL_MS) return;
+  side.bwAcc = null;
+  const m = mean(a.v), sd = sdev(a.v), cv = sd / m * 100, W = a.mass * G0, k = W / m, om = a.o.length ? mean(a.o) : NaN;
+  const res = document.getElementById("bwRes");
+  document.getElementById("bwStart").disabled = false;
+  if (!(m > 30)) { res.textContent = `Σ sensor force only ${m.toFixed(0)} N: is this foot on the insole? Not saved.`; return; }
+  const warn = [];
+  if (cv > 10) warn.push(`⚠ not steady (CV ${cv.toFixed(1)} %): stand still and retry`);
+  if (om > 0.1 * m) warn.push(`⚠ the other foot carried ${om.toFixed(0)} N: lift it off the ground`);
+  if (side.mv.some(v => v >= SAT_MV)) warn.push("⚠ a channel is saturated: Σ reads low, so the factor is too high");
+  bwResult = { k, mass: a.mass, sumN: m, cv, at: Date.now() };
+  res.textContent = `Body weight ${a.mass} kg × 9.81 = ${W.toFixed(1)} N\nΣ sensors ${m.toFixed(1)} ± ${sd.toFixed(1)} N (CV ${cv.toFixed(1)} %, ${a.v.length} samples)\n` +
+    `Factor = ${W.toFixed(1)} / ${m.toFixed(1)} = ×${k.toFixed(3)}   (check: ${m.toFixed(1)} × ${k.toFixed(3)} = ${(m * k).toFixed(1)} N)` +
+    (warn.length ? "\n" + warn.join("\n") : "");
+  document.getElementById("bwUse").disabled = cv > 25;
+}
+document.getElementById("bwUse").onclick = () => {
+  if (!bwResult || !bwSide) return;
+  settings.bw[bwSide.key] = bwResult; settings.bwOn = true; saveSettings();
+  const inp = document.getElementById("inMass");
+  inp.value = bwResult.mass;
+  try { localStorage.setItem("insole_inMass", inp.value); } catch (e) {}
+  renderBwBtn(); refreshAll(); bwDlg.close();
+};
+document.getElementById("bwClear").onclick = () => {
+  if (!bwSide) return;
+  settings.bw[bwSide.key] = null; saveSettings(); renderBwBtn(); refreshAll();
+  document.getElementById("bwRes").textContent = "Factor cleared for this foot.";
+};
+document.getElementById("bwCancel").onclick = () => bwDlg.close();
+bwDlg.addEventListener("close", () => { if (bwSide) bwSide.bwAcc = null; bwSide = null; });
+
+// ---------- calibration check: the app's own mV -> N conversion against UTM hold points ----------
+// Built-in reference: S1-S7test results.xlsx (utm_N, mean_mV per sensor in test order) and the independent
+// S1 3-round run UTM_S1_20261027_230602_CAL (RF 39k, base 302.52 mV).
+const REF_WB = [
+  [0,300.87,10.2,334.24,25,379.39,49,449.23,99,593.5,150.5,742.5,199,882.97,253,1040.71,299,1172.95,367,1367.18,424,1528.02,495,1729.9,599,2018.02,709,2328.5,791,2550.71,926,2914.02,1004,3139.93,999,3188.23,908,2980.47,806,2712.56,702.8,2442.53,606.6,2174.14,509.6,1895.71,453,1738.42,404.7,1598.96,354,1446.08,305,1302.85,254,1144.41,205,996.66,151,821.22,104.5,671.5,77.9,585.34,53.5,500.52,27,408.74,12,351.98,0,300.94],
+  [0,301.5,9.5,331.64,26.4,380.46,51,448.06,73,507.73,100,583.97,155,730.16,196,836.01,250,981.09,298,1109.85,347,1242.82,399,1384.47,454,1533.71,500,1655.3,602,1940.02,699,2183.52,800,2441.26,895,2686.19,994,2941.54,1005,3001.82,902,2789.55,806,2555.95,704,2311.11,611,2071.47,512,1820.53,456,1675.41,403,1536.39,353,1394.77,308,1268.98,256,1122.66,209,983.6,158,834.94,106,676.45,79,594.76,54,508.1,24,404.51,11,351.88,0,301.95],
+  [0,299.84,10.2,338.85,24.6,391.05,50.6,480.87,74.2,566.96,99,652.57,156,850.25,200,1009.64,260,1217.34,293,1334.41,337,1489.96,395,1691.19,443,1862.84,491,2028.15,588,2368.67,703,2766.91,792,3083.55,907,3299.7,1004,3300.18,998,3300.49],
+  [10,344.6,24.3,401.42,51,507.01,98,687.42,147,873.86,210,1111.46,254,1278.64,308,1480.38,391,1794.01,488,2149.56,596,2542.09,710,2955.01,800,3287.86,890,3299.35,781,3299.22,723,3126.11,595,2693.56,506,2375.18,403,1993.63,353,1797.75,308,1626.37,247,1384.38,207,1223.99,154,1003.5,113,829.46,57,588.23,26,438.67,0,303.01],
+  [0,298.01,10.3,326.5,24.6,363.59,48.3,424.49,71.6,483.52,99.5,555.5,144,671.29,202,830.18,246.5,938.72,296,1069.16,346,1193.68,397,1323.16,495,1565.95,596,1816.55,690,2049.32,794,2307.6,896.4,2575.47,995,2810.25,998.8,2870.2,900.4,2682.16,800.4,2458.22,700.8,2225.86,601.6,1985.68,501.8,1739.46,408,1500.83,349,1341.2,305,1223.04,258,1092.03,201,929.39,139,748.48,105,644.84,80,566.29,54,486.94,26.5,395.99,11,340.17,0,298.67],
+  [10.5,333.77,24.4,375.23,56.7,443.76,95.5,null,143,null,202,null,263,null,321,null,364,null,430,null,498,null,607,null,709,null,785,null,920,3297.03,996,3296.89,999,3297.86,904,3297.84,829,3249.8,790,3122.45,687,2771.88,570,2372.81,494,2102.13,417,1824.1,344,1558.76,292,1369.86,256.5,1241.68,202,1048.89,156,888.18,107.5,723.69,75.5,616.17,53,539.88,25.8,429.06,10.6,360.91,0,304.45],
+  [10,332.5,24.2,378.8,49,466.47,102,660.54,147,827,210,1057.03,250,1201.97,315,1437.81,375,1660.46,425,1841.61,502,2132.45,610,2508.16,690,2787.85,804,3190.61,806,3243.07,906,3297.91,995,3297.36,904,3297.39,705.6,3293.79,614,2692.26,514,2345.85,413,1986.29,355,1786,309,1597.34,246,1355.92,209,1206.44,113,812.88,55,559.95,27,432.31,12.5,361.07,0,304.62],
+];
+const REF_S1_3R = [0,302.52,51,439.57,148,708.21,240,974.11,347,1280.69,418,1494.5,553,1881.55,686,2255.7,752,2457.28,829,2688,889,2859.84,1058,3298.3,970,3152.61,872,2896.49,761,2592.19,651,2290.16,559,2028.5,459,1740.99,377,1496.19,272,1170.91,184,893.2,80,557,0,305.35,107,607.17,172,804.76,234,987.11,314,1221.69,403,1483.18,490,1740.4,582,2010.27,692,2344.23,798,2629.05,917,2962.76,1013,3247.21,911,3024.1,786,2687.68,656,2403.09,566,2066.54,446,1709.65,277,1192.8,190,913.51,99,615.72,0,302.74,115,626.33,193,859.33,309,1208.7,422,1543.83,552,1925.64,701,2344.75,832,2721.78,968,3103.24,1065,3299.73,911,3028.67,805,2739.99,592,2135.7,492,1837.99,373,1479.6,254,1107.36,172,846.32,85,565.46,0,302.66];
+const CHK_MAX = 52, CHK_BIAS = 20;      // ±52 N = S1 RSS budget (5.2 % FS); bias limit
+function pairs(arr) { const o = []; for (let i = 0; i < arr.length; i += 2) o.push({ F: arr[i], mv: arr[i + 1] }); return o; }
+function builtinSets() {
+  const sets = REF_WB.map((arr, ch) => {
+    const pts = pairs(arr), z = pts.filter(p => p.F === 0 && p.mv != null).map(p => p.mv);
+    return { ch, label: `S1-S7 workbook, sensor S${ch + 1} (fit data)`, base: z.length ? mean(z) : DEFAULT_CAL[ch].base, pts };
+  });
+  const s1 = pairs(REF_S1_3R).map(p => (p.F === 656 && p.mv === 2403.09 ? { ...p, skip: "656 N typed, ≈686 N expected" } : p));
+  sets.splice(1, 0, { ch: 0, label: "S1 3-round run, 27 Oct (independent)", base: 302.52, pts: s1 });
+  return sets;
+}
+function checkSet(set, c, hyst) {
+  const st = { on: false }, e = [], e300 = [], skipped = [];
+  let worst = null;
+  for (const p of set.pts) {
+    if (p.mv == null || !Number.isFinite(p.mv)) continue;
+    const G = gOf(p.mv, set.base);
+    const F = hyst ? hystForce(st, G, c, 0) : G > 0 ? c.a * Math.pow(G, c.b) : 0;
+    if (!(p.F > 0) || p.mv >= SAT_MV) continue;
+    if (p.skip) { skipped.push(p.skip); continue; }
+    const d = F - p.F;
+    e.push(d);
+    if (p.F <= 300) e300.push(d);
+    if (!worst || Math.abs(d) > Math.abs(worst.d)) worst = { d, F: p.F, app: F };
+  }
+  const rms = a => a.length ? Math.sqrt(mean(a.map(x => x * x))) : NaN;
+  const maxAbs = e.length ? Math.max(...e.map(Math.abs)) : NaN, bias = mean(e);
+  return { n: e.length, bias, rmse: rms(e), maxAbs, rmse300: rms(e300), bias300: mean(e300), worst, skipped,
+    ok: e.length >= 4 && maxAbs <= CHK_MAX && Math.abs(bias) <= CHK_BIAS };
+}
+function renderCheck(sets, title) {
+  const foot = document.getElementById("chkFoot").value, draft = readCalGrid(), side = sides[foot];
+  const rowsH = sets.map(set => {
+    const c = draft[foot][set.ch], r = checkSet(set, c, draft.hyst), S = SITES[set.ch];
+    const now = side.conn && side.count ? side.base[set.ch] : NaN;
+    const verdict = r.n < 4 ? '<span class="note">too few points</span>' : r.ok ? '<span class="ok">aligned</span>'
+      : `<span class="bad">${r.maxAbs > CHK_MAX ? "error > ±52 N" : "bias > ±20 N"}</span>`;
+    const tip = [r.worst ? `worst point: UTM ${r.worst.F} N, app ${r.worst.app.toFixed(1)} N (${r.worst.d >= 0 ? "+" : ""}${r.worst.d.toFixed(1)} N)` : "",
+      ...r.skipped.map(x => "excluded: " + x)].filter(Boolean).join("; ");
+    return `<tr><td>${S.ch} · ${S.id}</td><td class="l">${set.label}${tip ? `<small class="note" style="display:block">${tip}</small>` : ""}</td><td>${r.n}</td>
+      <td>${one(r.bias, 1)}</td><td>${one(r.rmse, 1)}</td><td>${one(r.maxAbs, 1)} (${one(r.maxAbs / FS_N * 100, 1)} %)</td>
+      <td>${one(r.bias300, 1)} / ${one(r.rmse300, 1)}</td>
+      <td>${set.base.toFixed(1)}${Number.isFinite(now) ? ` / ${now.toFixed(1)}${Math.abs(now - set.base) > 8 ? ' <span class="bad">!</span>' : ""}` : ""}</td>
+      <td>${verdict}</td></tr>`;
+  }).join("");
+  document.getElementById("chkOut").innerHTML = `<p>${title}: ${foot === "L" ? "Left" : "Right"} foot coefficients as shown above
+    (${draft.hyst ? "hysteresis model" : "single curve"}). Error = app − UTM; "!" = zero base now differs from the test by more than 8 mV.</p>
+    <div class="scroll"><table><thead><tr><th>Ch · site</th><th class="l">UTM data</th><th>Pts</th><th>Bias N</th><th>RMSE N</th>
+    <th>Max |err| N (% FS)</th><th>0–300 N bias / RMSE</th><th>Base mV test / now</th><th></th></tr></thead><tbody>${rowsH}</tbody></table></div>`;
+}
+document.getElementById("chkRun").onclick = () => { lastCheck = { sets: builtinSets(), title: "Built-in UTM data" }; renderCheck(lastCheck.sets, lastCheck.title); };
+let chkTimer = 0;                                // re-check while coefficients are edited
+dlg.addEventListener("input", e => {
+  if (!lastCheck || !e.target.matches("input[data-k], #calHyst")) return;
+  clearTimeout(chkTimer); chkTimer = setTimeout(() => renderCheck(lastCheck.sets, lastCheck.title), 250);
+});
+document.getElementById("chkFoot").onchange = () => { if (lastCheck) renderCheck(lastCheck.sets, lastCheck.title); };
+let lastCheck = null;
+function setsFromFile(rows, name) {
+  const num = v => typeof v === "number" ? v : v == null || v === "" ? NaN : parseFloat(v);
+  const hi = rows.findIndex(r => String(r[0]).trim() === "CAL" && r.some(v => String(v).trim() === "utm_N"));
+  if (hi >= 0) {                                  // FSR_UTM_Cal CAL log
+    const h = rows[hi].map(v => String(v).trim()), col = k => h.indexOf(k);
+    const [cCh, cF, cMv, cB, cCy] = ["ch", "utm_N", "mean_mV", "base_mV", "cycle"].map(col);
+    if ([cCh, cF, cMv].some(c => c < 0)) throw new Error("CAL header without ch / utm_N / mean_mV");
+    const force = document.getElementById("chkCh").value, by = {};
+    for (const r of rows.slice(hi + 1)) {
+      if (String(r[0]).trim() !== "CAL") continue;
+      const ch = force === "auto" ? num(r[cCh]) : +force, F = num(r[cF]), mv = num(r[cMv]);
+      if (!(ch >= 1 && ch <= 7) || !Number.isFinite(F) || !Number.isFinite(mv)) continue;
+      const g = by[ch] || (by[ch] = { pts: [], bases: [], cycles: new Set() });
+      g.pts.push({ F, mv });
+      if (cB >= 0 && num(r[cB]) > 0) g.bases.push(num(r[cB]));
+      if (F === 0) g.bases.push(mv);
+      if (cCy >= 0) g.cycles.add(r[cCy]);
+    }
+    const out = Object.keys(by).map(ch => ({ ch: ch - 1, label: `${name}, ch${ch} (${by[ch].pts.length} rows, ${by[ch].cycles.size || "?"} cycles)`,
+      base: by[ch].bases.length ? by[ch].bases[0] : DEFAULT_CAL[ch - 1].base, pts: by[ch].pts }));
+    if (!out.length) throw new Error("no CAL rows with ch 1–7");
+    return out;
+  }
+  const start = rows.findIndex(r => r.some(v => Number.isFinite(num(v)))), data = rows.slice(start), out = [];
+  for (let ch = 0; ch < 7; ch++) {                // workbook layout: utm_N | mean_mV pairs per sensor
+    const pts = data.map(r => ({ F: num(r[2 * ch]), mv: num(r[2 * ch + 1]) })).filter(p => Number.isFinite(p.F))
+      .map(p => (Number.isFinite(p.mv) ? p : { F: p.F, mv: null }));
+    const z = pts.filter(p => p.F === 0 && p.mv != null).map(p => p.mv);
+    if (pts.length && z.length) out.push({ ch, label: `${name}, column ${2 * ch + 1}–${2 * ch + 2}`, base: mean(z), pts });
+  }
+  if (!out.length) throw new Error("no utm_N | mean_mV columns with a 0 N reading");
+  return out;
+}
+document.getElementById("chkFile").onchange = async ev => {
+  const file = ev.target.files[0], box = document.getElementById("chkOut");
+  ev.target.value = "";
+  if (!file) return;
+  try {
+    const rows = /\.csv$/i.test(file.name)
+      ? (await file.text()).split(/\r?\n/).map(l => l.split(/[,;\t]/).map(x => x.trim()))
+      : await readXlsx(await file.arrayBuffer());
+    lastCheck = { sets: setsFromFile(rows, file.name), title: file.name };
+    renderCheck(lastCheck.sets, lastCheck.title);
+  } catch (e) { box.innerHTML = `<p>Could not check ${file.name}: ${e.message}</p>`; }
+};
+
+// ---------- IMU mounting ----------
+function fillMount() {
+  for (const id of ["mountFwd", "mountUp"]) {
+    const sel = document.getElementById(id);
+    sel.innerHTML = AXES.map(a => `<option>${a}</option>`).join("");
+    sel.value = id === "mountFwd" ? settings.mount.fwd : settings.mount.up;
+    sel.onchange = () => {
+      const f = document.getElementById("mountFwd").value, u = document.getElementById("mountUp").value, msg = document.getElementById("mountMsg");
+      if (f[1] === u[1]) { msg.textContent = "Toe and up must be different axes."; return; }
+      settings.mount = { fwd: f, up: u }; mountM = mountMatrix(); saveSettings();
+      msg.textContent = `Saved. Right = toe × up.`;
+      for (const k of ["L", "R"]) sides[k].att = { p: null, e: null, t: null };
+      if (lastRec && !resultsEl.hidden) showResults(lastRec, lastRec === recording);
+    };
+  }
+}
+
 // ---------- start ----------
 buildSide("L");
 buildSide("R");
 renderLegend();
+renderBwBtn();
+fillMount();
 refreshLogCount();
 requestAnimationFrame(render);
 </script>

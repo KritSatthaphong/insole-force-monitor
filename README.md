@@ -49,6 +49,13 @@ otherwise press **Zero** with the foot off the insole.
   speed / cadence / step & stride, vGRF peaks, impulse, loading rate, plantar pressure (peak kPa, PTI, contact area, COP path)
   as mean ± SD per foot, plus a per-step table and "Export steps CSV". Results also appear when a foot disconnects mid-recording.
 - Walking speed: fill **Distance** (m walked during the recording) — or **Height** for an estimate. **Mass** adds %BW.
+- **IMU (firmware v1.1+):** live heel-strike shock, foot pitch and eversion; in Results, IMU stride length and speed
+  (zero-velocity updates), foot clearance, strike / toe-off angles, eversion and foot progression angle. Set how the BMI270
+  sits in the insole under Calibration → IMU mounting (default toe +Y, up +Z).
+- **BW cal / BW scale:** optional. BW cal on a foot measures factor = body weight / Σ sensor force while standing on that foot;
+  the BW scale button multiplies vGRF by it (off by default, so vGRF stays Σ Fᵢ).
+- **Calibration check** (in Calibration): runs the app's conversion over the built-in UTM data or a UTM file and shows
+  bias / RMSE / max error per channel against ±52 N / ±20 N limits.
 
 ## 4. Logging over Bluetooth to a laptop or phone
 Connect each foot with **Bluetooth**, press **● Record**, walk, press **■ Stop & save**. No cable or SD card is needed.
