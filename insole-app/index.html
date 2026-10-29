@@ -1,0 +1,1618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insole Force Monitor</title>
+<style>
+:root {
+  --bg: #f4f5f7; --surface: #ffffff; --surface-2: #eef0f3; --line: #d6dae0;
+  --text: #17202a; --muted: #5d6875; --accent: #0f6e7a; --accent-ink: #ffffff;
+  --ok: #1d8a4e; --warn: #b26b00; --bad: #c0392b; --sensor-off: #dfe3e8; --outline: #2b3440;
+  --insole-fill: #fafbfc; --ser-l: #0f6e7a; --ser-r: #c2410c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101418; --surface: #182027; --surface-2: #212b34; --line: #2f3b46;
+    --text: #e6ebf0; --muted: #96a3b0; --accent: #3fb6c4; --accent-ink: #062126;
+    --ok: #45c07a; --warn: #e3a33a; --bad: #ef6b5b; --sensor-off: #2b3640; --outline: #aab6c2;
+    --insole-fill: #141b21; --ser-l: #3fb6c4; --ser-r: #f08a4b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101418; --surface: #182027; --surface-2: #212b34; --line: #2f3b46;
+  --text: #e6ebf0; --muted: #96a3b0; --accent: #3fb6c4; --accent-ink: #062126;
+  --ok: #45c07a; --warn: #e3a33a; --bad: #ef6b5b; --sensor-off: #2b3640; --outline: #aab6c2;
+  --insole-fill: #141b21; --ser-l: #3fb6c4; --ser-r: #f08a4b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 17px; margin: 0; margin-right: auto; }
+header h1 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+.group { display: flex; align-items: center; gap: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+button { font: inherit; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.rec[aria-pressed="true"] { background: var(--bad); color: #fff; border-color: var(--bad); }
+.legend { display: flex; align-items: center; gap: 8px; padding: 10px 16px; flex-wrap: wrap; }
+.legend .bar { flex: 1 1 260px; max-width: 560px; height: 14px; border-radius: 7px; border: 1px solid var(--line); }
+.legend .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
+.legend .scale { flex: 1 1 260px; max-width: 560px; }
+.legend .note { color: var(--muted); font-size: 12px; }
+main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 0 16px 24px; }
+@media (max-width: 760px) {
+  main { gap: 8px; }
+  .foot { padding: 8px; }
+  .foot .body { grid-template-columns: 1fr; }
+  .foot button { padding: 5px 8px; font-size: 13px; }
+}
+@media (max-width: 560px) {
+  .col-ch, td.barcell, th.barcell { display: none; }
+  table { font-size: 12px; }
+  .foot-head h2 { font-size: 14px; }
+  .stat b { font-size: 14px; }
+}
+.foot { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+.foot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.foot-head h2 { margin: 0; font-size: 16px; margin-right: auto; }
+.pill { font-size: 12px; padding: 2px 9px; border-radius: 99px; background: var(--surface-2); color: var(--muted);
+  border: 1px solid var(--line); white-space: nowrap; }
+.pill.on { color: var(--ok); border-color: var(--ok); }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.body { display: grid; grid-template-columns: minmax(150px, 230px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.foot.inactive .viz, .foot.inactive table { opacity: .4; filter: grayscale(1); }
+svg.insole { width: 100%; height: auto; display: block; }
+svg .outline { fill: var(--insole-fill); stroke: var(--outline); stroke-width: .7; }
+svg .head { fill: none; stroke: var(--line); stroke-width: .5; stroke-dasharray: 2 1.2; }
+svg .sensor { stroke: var(--outline); stroke-width: .5; }
+svg .lbl { font-size: 5.2px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+svg .val { font-size: 6.2px; font-weight: 700; text-anchor: middle; pointer-events: none; font-variant-numeric: tabular-nums; }
+svg .cop { fill: none; stroke: var(--text); stroke-width: .9; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.stat { background: var(--surface-2); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { padding: 4px 4px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.barcell { width: 38%; }
+.mbar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.mbar i { display: block; height: 100%; width: 0; }
+.sat { color: var(--bad); font-weight: 700; font-size: 11px; }
+.msg { font-size: 12px; color: var(--warn); min-height: 1.2em; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text);
+  max-width: min(720px, calc(100vw - 32px)); width: 100%; padding: 16px; }
+dialog::backdrop { background: rgba(0,0,0,.4); }
+dialog h3 { margin: 0 0 4px; }
+dialog p { color: var(--muted); margin: 4px 0 10px; font-size: 12px; }
+dialog#calDlg { max-width: min(860px, calc(100vw - 32px)); }
+.calgrid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.calgrid input { width: 64px; font: inherit; padding: 3px 5px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); text-align: right; }
+.calgrid th.grp { text-align: center; border-bottom: 0; padding-bottom: 0; }
+.calgrid.hyst-on td.single input, .calgrid.hyst-off td.hyst input { opacity: .45; }
+.chk { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 6px 0; }
+.calimport { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; margin: 8px 0 2px; }
+.calimport select, .calimport input { font: inherit; max-width: 100%; }
+#calReport { white-space: pre-line; }
+.logact { display: flex; gap: 4px; justify-content: flex-end; }
+.logact button { padding: 3px 8px; font-size: 12px; }
+@media (max-width: 560px) { .logact { flex-direction: column; align-items: stretch; } }
+#logDlg td:first-child { white-space: normal; word-break: break-all; }
+.dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+footer { padding: 0 16px 20px; color: var(--muted); font-size: 12px; }
+.trial label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.trial input { width: 62px; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text); }
+svg .trail { fill: none; stroke: var(--text); stroke-width: 1.1; stroke-linejoin: round; stroke-linecap: round; opacity: .7; }
+.results { margin: 0 16px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.res-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.res-head h2 { margin: 0; font-size: 17px; margin-right: auto; }
+.res-note { color: var(--muted); font-size: 12px; margin: 6px 0 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.res-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 960px) { .res-grid { grid-template-columns: 1fr; } }
+.res-foot { border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-width: 0; }
+.res-foot h3 { margin: 0 0 4px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.res-foot h3 i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.res-foot h4 { margin: 14px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.res-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 150px); gap: 12px; align-items: start; }
+@media (max-width: 520px) { .res-row { grid-template-columns: 1fr; } }
+.res-foot td.l, .res-foot th.l { text-align: left; white-space: normal; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .axis { stroke: var(--line); stroke-width: 1; }
+.chart text { font-size: 10px; fill: var(--muted); }
+.chart .ev { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1; }
+.scroll { overflow-x: auto; }
+details summary { cursor: pointer; color: var(--accent); margin-top: 12px; font-size: 13px; }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Insole Force Monitor <small>A401 · EU42 · RF 39 kΩ</small></h1>
+  <div class="group">
+    <span class="note">Color by</span>
+    <div class="seg" role="group" aria-label="Color by">
+      <button id="modeN" aria-pressed="true">Force (N)</button>
+      <button id="modeMV" aria-pressed="false">Voltage (mV)</button>
+    </div>
+  </div>
+  <div class="group">
+    <button id="peakBtn" aria-pressed="false">Peak hold: off</button>
+    <button id="peakReset">Reset peaks</button>
+  </div>
+  <div class="group">
+    <button id="recBtn" class="rec" aria-pressed="false">● Record</button>
+    <button id="logBtn" title="Recordings saved in this browser: download, share or delete">Logs</button>
+    <button id="calBtn">Calibration</button>
+    <span class="note" id="recInfo"></span>
+  </div>
+  <div class="group trial" title="Used for the results after recording">
+    <label>Distance m <input id="inDist" type="number" min="0" step="0.1" placeholder="—"></label>
+    <label>Height cm <input id="inHeight" type="number" min="0" step="1" placeholder="—"></label>
+    <label>Mass kg <input id="inMass" type="number" min="0" step="0.1" placeholder="—"></label>
+  </div>
+</header>
+
+<div class="legend">
+  <div class="scale">
+    <div class="bar" id="legendBar"></div>
+    <div class="ticks" id="legendTicks"></div>
+  </div>
+  <span class="note" id="legendNote"></span>
+</div>
+
+<main id="main"></main>
+
+<section id="results" class="results" hidden></section>
+
+<footer>
+  USB needs Chrome or Edge on a computer. BLE needs Chrome (desktop or Android) or the Bluefy browser on iPhone.
+  The page must be opened from <code>http://localhost</code> or an <code>https://</code> address.
+  Zero each foot with no load before testing. Readings ≥ 3250 mV are saturated (marked SAT); the force shown is then a lower bound.
+</footer>
+
+<dialog id="logDlg">
+  <h3>Logs</h3>
+  <p>Every recording is saved in this browser as it runs (about once a second), so a closed tab, a crash or a lost Bluetooth link keeps
+  everything up to that moment ("recovered"). Download saves the CSV to this computer or phone; Share sends it to Files / Drive / e-mail on a phone.
+  Clearing the browser's site data removes these logs, so download the ones you need.</p>
+  <div id="logList"></div>
+  <div class="dlg-actions"><button id="logClose" class="primary">Close</button></div>
+</dialog>
+
+<dialog id="calDlg">
+  <h3>Calibration: F = a · G<sup>b</sup> per sensor</h3>
+  <p>G (µS) = (mV / base − 1) / RF × 10⁶, RF = 39 kΩ. Defaults are fitted from <i>S1-S7test results.xlsx</i> (UTM rigid plate, 0 → 1000 → 0 N,
+  saturated points and missing readings excluded), one sensor per channel. The right foot uses the same values until its own sensors are calibrated.
+  "Base" is the zero-load mV now in use (set by Zero; the test's base until then).</p>
+  <label class="chk"><input type="checkbox" id="calHyst"> Hysteresis compensation: loading curve while the force rises, unloading curve as it falls
+    (UTM error over 0–300 N: 2–8 N per sensor instead of 1–15 N with one curve)</label>
+  <div class="calimport">
+    <label>Fit from a UTM workbook (.xlsx or .csv, same layout) <input type="file" id="calFile" accept=".xlsx,.csv"></label>
+    <label>into <select id="calTarget"><option value="L">Left</option><option value="R">Right</option><option value="LR">both feet</option></select></label>
+  </div>
+  <p id="calReport"></p>
+  <div class="calgrid" id="calGrid"></div>
+  <div class="dlg-actions">
+    <button id="calCopy">Copy Left → Right</button>
+    <button id="calDefaults">Reset defaults</button>
+    <button id="calCancel">Cancel</button>
+    <button id="calSave" class="primary">Save</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+// ---------- constants ----------
+const RF = 39000;            // feedback resistor (ohm)
+const SAT_MV = 3250;         // ADC saturation flag
+const FS_N = 1000;           // color scale full scale
+const MV_MIN = 300, MV_MAX = 3300;
+const DEAD_MV = 4;           // below base + this -> 0 N
+const AREA_MM2 = Math.PI * 12.7 * 12.7;                       // A401 active area (Ø25.4 mm) = 506.7 mm²
+const REGION = { rear: [0, 1], mid: [2, 3], fore: [4, 5, 6] }; // SITES index: S1,S4 | S6,S11 | S13,S10,S14
+const VREF_OK = [250, 350];  // a zero reading inside this range is taken as the channel's true no-load level (VREF)
+// Gait thresholds (N): contact while vGRF > ON (start/end traced back to OFF); a region (raw sensor N) is loaded above REG.
+const GAIT = { ON: 20, OFF: 10, REG: 10, LOADED: 5, MIN_STANCE: 200, MAX_STRIDE: 2500 };
+const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+// Firmware channel -> insole site (heel to toe). Coordinates (mm) from A401_Left_Right_Insole_A4_1to1.pdf,
+// X = transverse from outline left edge, Y = heel-to-toe from outline bottom.
+const SITES = [
+  { id: "S1",  ch: 1, L: [39.0,  33.0], R: [51.7,  33.0] },
+  { id: "S4",  ch: 2, L: [41.0,  72.0], R: [49.7,  72.0] },
+  { id: "S6",  ch: 3, L: [21.0, 122.0], R: [69.7, 122.0] },
+  { id: "S11", ch: 4, L: [21.0, 162.0], R: [69.7, 162.0] },
+  { id: "S13", ch: 5, L: [33.0, 194.0], R: [57.7, 194.0] },
+  { id: "S10", ch: 6, L: [65.0, 205.0], R: [25.7, 205.0] },
+  { id: "S14", ch: 7, L: [66.0, 247.0], R: [24.7, 247.0] },
+];
+const OUTLINE_W = 90.73, OUTLINE_L = 272.01;
+// Left insole outline (mm, SVG y down, toe at top), decimated from the CAD spline.
+const OUTLINE_PATH = "M36.3,272.0 L36.0,272.0 L35.3,271.9 L34.7,271.9 L34.2,271.8 L33.8,271.8 L33.3,271.7 L32.9,271.7 L32.3,271.6 L31.8,271.5 L31.3,271.4 L30.8,271.3 L30.2,271.1 L29.7,271.0 L29.1,270.8 L28.6,270.6 L28.0,270.4 L27.4,270.2 L26.7,270.0 L26.1,269.7 L25.4,269.4 L24.8,269.1 L24.1,268.8 L23.4,268.3 L22.6,267.9 L21.9,267.4 L21.1,266.8 L20.3,266.1 L19.5,265.4 L18.0,263.8 L15.2,259.0 L14.1,256.2 L13.6,254.4 L12.8,251.0 L12.2,247.2 L10.6,236.6 L9.9,231.6 L9.4,228.2 L8.9,223.9 L8.3,218.8 L7.5,210.5 L7.1,205.2 L6.8,198.3 L6.5,192.4 L6.4,189.1 L6.2,180.0 L6.0,171.9 L5.7,168.5 L5.3,164.4 L4.6,158.7 L3.9,153.1 L3.6,149.5 L3.3,145.8 L2.9,140.0 L2.5,135.9 L2.1,132.1 L1.1,122.7 L0.7,118.8 L0.4,114.8 L0.2,110.7 L0.1,104.2 L0.1,100.3 L0.0,96.6 L0.0,93.5 L0.1,89.0 L0.2,84.0 L0.4,79.8 L0.6,77.1 L1.0,73.2 L1.4,70.3 L1.9,66.9 L2.4,63.9 L3.2,59.5 L4.1,55.1 L4.9,51.1 L5.8,47.5 L6.7,44.2 L7.7,41.2 L8.9,38.3 L10.2,35.6 L11.7,32.9 L13.1,30.4 L14.7,28.0 L16.1,25.8 L17.6,23.8 L19.0,21.9 L20.4,20.3 L21.8,18.7 L23.1,17.3 L24.4,16.0 L25.7,14.7 L26.9,13.6 L28.0,12.5 L29.1,11.5 L30.2,10.6 L31.2,9.8 L32.1,9.1 L33.0,8.4 L33.9,7.8 L34.7,7.3 L35.5,6.8 L36.2,6.3 L36.9,5.9 L37.6,5.5 L38.3,5.1 L39.1,4.7 L40.2,4.1 L41.5,3.6 L42.7,3.1 L43.8,2.6 L45.0,2.2 L46.1,1.8 L47.2,1.5 L48.2,1.2 L49.3,0.9 L50.3,0.7 L51.3,0.5 L53.3,0.2 L54.6,0.1 L55.5,0.1 L56.5,0.0 L57.4,0.0 L58.3,0.0 L59.3,0.1 L59.8,0.1 L60.3,0.1 L60.8,0.2 L61.2,0.2 L61.7,0.3 L62.2,0.4 L62.7,0.5 L63.2,0.5 L63.7,0.6 L64.2,0.7 L64.7,0.8 L65.2,1.0 L65.7,1.1 L66.2,1.2 L66.8,1.4 L67.3,1.6 L67.8,1.7 L68.3,1.9 L68.9,2.1 L69.5,2.4 L70.1,2.6 L70.7,2.9 L71.3,3.2 L72.0,3.5 L72.6,3.9 L73.3,4.3 L74.1,4.8 L74.8,5.3 L75.7,6.0 L76.5,6.7 L77.4,7.5 L78.3,8.4 L79.2,9.5 L80.1,10.7 L80.9,12.1 L81.8,13.5 L82.6,15.1 L83.4,16.9 L84.1,18.7 L84.8,20.7 L85.5,22.8 L86.1,24.9 L86.7,27.1 L87.3,29.4 L88.4,33.6 L88.8,36.1 L89.3,38.5 L89.7,41.0 L89.9,43.5 L90.2,46.1 L90.3,48.8 L90.5,51.7 L90.6,56.2 L90.7,59.1 L90.7,62.0 L90.7,65.1 L90.6,68.2 L90.3,71.3 L90.0,74.5 L89.5,77.7 L88.9,80.9 L88.3,84.1 L87.6,87.3 L86.8,90.6 L85.8,93.9 L83.9,100.1 L82.6,103.8 L81.1,107.6 L78.4,114.2 L76.5,119.2 L74.5,124.8 L72.5,130.9 L70.5,137.2 L69.5,141.0 L69.1,142.8 L68.7,144.4 L68.4,146.1 L68.2,147.9 L68.0,149.8 L67.8,151.8 L67.6,153.9 L67.4,158.7 L67.3,162.1 L67.1,167.7 L66.9,173.9 L66.6,188.2 L66.5,199.9 L66.5,205.3 L66.7,215.2 L66.5,222.3 L66.2,226.1 L66.1,228.4 L65.5,233.5 L65.3,234.9 L65.1,236.4 L64.9,237.9 L64.6,239.4 L63.8,243.9 L63.0,248.2 L62.3,251.8 L61.9,253.3 L61.4,254.8 L60.9,256.3 L60.4,257.7 L59.7,259.1 L59.0,260.4 L58.0,262.2 L56.9,263.8 L54.6,266.4 L53.8,267.2 L52.9,267.9 L52.1,268.5 L51.2,269.0 L50.4,269.4 L49.6,269.8 L48.8,270.1 L48.1,270.3 L47.3,270.6 L46.6,270.8 L46.0,270.9 L45.4,271.1 L44.8,271.2 L44.2,271.3 L43.6,271.4 L43.1,271.5 L42.4,271.6 L41.5,271.8 L40.4,271.9 L39.5,271.9 L38.7,272.0 L37.8,272.0 L37.1,272.0 L36.7,272.0 L36.4,272.0Z";
+
+// Per-sensor fits F = a*G^b from "S1-S7test results.xlsx" (UTM rigid plate, RF 39k, 0→1000→0 N), made by
+// tools/cal_from_xlsx.py: aU/bU = loading leg, aD/bD = unloading leg, a/b = both legs (single curve).
+// base = zero-load mV in the test. rmse1 / rmseH = error (N) of single curve / hysteresis model over 0–300 N.
+const DEFAULT_CAL = [
+  { aU: 3.58966, bU: 1.02654, aD: 2.16552, bD: 1.11225, a: 2.77212, b: 1.07015, base: 300.90, rmse1: 11.7, rmseH: 2.1, note: "UTM S1: load 16 pts rmse 1.3 N, unload 18 pts rmse 3.7 N" },
+  { aU: 3.98233, bU: 1.01871, aD: 2.04133, bD: 1.13729, a: 2.82156, b: 1.08045, base: 301.73, rmse1: 15.0, rmseH: 1.8, note: "UTM S2: load 19 pts rmse 2.8 N, unload 17 pts rmse 1.5 N" },
+  { aU: 3.22000, bU: 1.00616, aD: 3.22000, bD: 1.00616, a: 3.22000, b: 1.00616, base: 299.84, rmse1: 0.6,  rmseH: 0.6, note: "UTM S3: load 16 pts rmse 0.6 N, unload leg missing (loading curve used for both)" },
+  { aU: 2.72739, bU: 1.02718, aD: 1.60231, bD: 1.11501, a: 2.12201, b: 1.06744, base: 303.01, rmse1: 11.6, rmseH: 4.8, note: "UTM S4: load 12 pts rmse 0.6 N, unload 12 pts rmse 2.2 N" },
+  { aU: 4.28822, bU: 1.01217, aD: 2.15866, bD: 1.13229, a: 2.99311, b: 1.07616, base: 298.34, rmse1: 14.6, rmseH: 3.0, note: "UTM S5: load 18 pts rmse 4.2 N, unload 16 pts rmse 3.3 N" },
+  { aU: 2.80304, bU: 1.03127, aD: 2.71891, bD: 1.03706, a: 2.80304, b: 1.03127, base: 304.45, rmse1: 7.5,  rmseH: 7.5, note: "UTM S6: load leg missing above 57 N (disconnected pins), unload 16 pts rmse 3.5 N" },
+  { aU: 3.41093, bU: 0.99299, aD: 1.73110, bD: 1.10614, a: 2.28257, b: 1.06399, base: 304.62, rmse1: 15.0, rmseH: 5.4, note: "UTM S7: load 15 pts rmse 3.1 N, unload 11 pts rmse 2.7 N" },
+];
+const CAL_KEYS = ["aU", "bU", "aD", "bD", "a", "b", "base"];
+const pickCal = c => Object.fromEntries(CAL_KEYS.map(k => [k, c[k]]));
+
+// ---------- color scale (Turbo, polynomial approximation) ----------
+function turbo(t) {
+  t = Math.min(1, Math.max(0, t));
+  const r = 34.61 + t * (1172.33 - t * (10793.56 - t * (33300.12 - t * (38394.49 - t * 14825.05))));
+  const g = 23.31 + t * (557.33 + t * (1225.33 - t * (3574.96 - t * (1073.77 + t * 707.56))));
+  const b = 27.2 + t * (3211.1 - t * (15327.97 - t * (27814 - t * (22569.18 - t * 6838.66))));
+  const c = v => Math.max(0, Math.min(255, Math.round(v)));
+  return [c(r), c(g), c(b)];
+}
+const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+const inkFor = a => (0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2]) > 140 ? "#111" : "#fff";
+
+// ---------- state ----------
+let colorMode = "N";
+let peakHold = false;
+let cal = loadCal();
+let recording = null;   // array of rows when recording
+const sides = {};
+
+function defaultCal() { return { hyst: true, L: DEFAULT_CAL.map(pickCal), R: DEFAULT_CAL.map(pickCal) }; }
+function loadCal() {
+  try {
+    const s = JSON.parse(localStorage.getItem("insoleCal_v2"));
+    const valid = a => Array.isArray(a) && a.length === 7 && a.every(c => CAL_KEYS.every(k => c[k] > 0));
+    if (s && valid(s.L) && valid(s.R)) return { hyst: s.hyst !== false, L: s.L, R: s.R };
+  } catch (e) {}
+  return defaultCal();
+}
+function saveCal() { try { localStorage.setItem("insoleCal_v2", JSON.stringify(cal)); } catch (e) {} }
+
+function gOf(mv, base) { return mv > base + DEAD_MV ? (mv / base - 1) / RF * 1e6 : 0; }   // conductance, µS
+function fStatic(G, c) {          // no load history: loading curve (hysteresis on) or the single curve
+  if (!(G > 0)) return 0;
+  return cal.hyst ? c.aU * Math.pow(G, c.bU) : c.a * Math.pow(G, c.b);
+}
+// Hysteresis: in the UTM loops the unloading leg reads ~20–30 % less force than the loading leg at the same G.
+// While the load rises the loading curve is used; once it turns, the unloading curve's shape is scaled through
+// that turning point; reloading heads back to the last peak. The state resets when G is back at its zero level
+// (G0 = conductance of the subtracted preload), so every step starts on the loading curve.
+function hystForce(st, G, c, G0) {
+  const U = g => c.aU * Math.pow(g, c.bU);
+  if (!(G > G0 + 0.3)) { st.on = false; return G > 0 ? U(G) : 0; }
+  if (!st.on) Object.assign(st, { on: true, up: true, Gr: 0, Fr: 0, Gp: null, Fp: 0, Ge: 0, Fe: 0 });
+  let F;
+  for (let k = 0; k < 2; k++) {
+    if (st.up) {
+      if (st.Gp != null && G >= st.Gp) { st.Gr = st.Gp; st.Fr = st.Fp; st.Gp = null; }
+      if (st.Gp != null) {
+        const den = U(st.Gp) - U(st.Gr);
+        F = st.Fr + (st.Fp - st.Fr) * (den > 0 ? (U(G) - U(st.Gr)) / den : 1);
+      } else F = st.Fr + U(G) - (st.Gr > 0 ? U(st.Gr) : 0);
+    } else F = st.Fr * Math.pow(G / st.Gr, c.bD);
+    const dz = 0.5 + 0.02 * st.Ge;                    // reversal dead band (µS), ignores ADC noise
+    if (st.up && G < st.Ge - dz) { st.up = false; st.Gr = st.Gp = st.Ge; st.Fr = st.Fp = st.Fe; continue; }
+    if (!st.up && G > st.Ge + dz) { st.up = true; st.Gr = st.Ge; st.Fr = st.Fe; continue; }
+    break;
+  }
+  if (st.up ? G > st.Ge : G < st.Ge) { st.Ge = G; st.Fe = F; }
+  return F;
+}
+const gInv = (F, a, b) => Math.pow(F / a, 1 / b);
+
+// ---------- build UI ----------
+const svgNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function buildSide(key) {
+  const name = key === "L" ? "Left insole" : "Right insole";
+  const card = document.createElement("section");
+  card.className = "foot inactive";
+  card.innerHTML = `
+    <div class="foot-head">
+      <h2>${name}</h2>
+      <span class="pill" data-r="status">Not connected</span>
+    </div>
+    <div class="actions">
+      <button data-r="usb">USB</button>
+      <button data-r="ble">Bluetooth</button>
+      <button data-r="demo">Demo</button>
+      <button data-r="zero" disabled>Zero</button>
+      <button data-r="disc" disabled>Disconnect</button>
+    </div>
+    <div class="msg" data-r="msg"></div>
+    <div class="body">
+      <div class="viz"></div>
+      <div>
+        <div class="stats">
+          <div class="stat"><b data-r="total">—</b><span>vGRF N</span></div>
+          <div class="stat"><b data-r="max">—</b><span>Max site</span></div>
+          <div class="stat"><b data-r="hz">—</b><span>Rate Hz</span></div>
+          <div class="stat"><b data-r="cop">—</b><span>COP x, y mm</span></div>
+        </div>
+        <table>
+          <thead><tr><th>Site</th><th class="col-ch">Ch</th><th>mV</th><th>N</th><th class="barcell"></th></tr></thead>
+          <tbody data-r="rows"></tbody>
+        </table>
+      </div>
+    </div>`;
+  document.getElementById("main").appendChild(card);
+  const q = r => card.querySelector(`[data-r="${r}"]`);
+
+  // SVG insole
+  const pad = 6;
+  const svg = el("svg", { class: "insole", viewBox: `${-pad} ${-pad} ${OUTLINE_W + 2 * pad} ${OUTLINE_L + 2 * pad}`,
+    role: "img", "aria-label": `${name} sensor map` });
+  const defs = el("defs", {}, svg);
+  const g0 = el("g", key === "R" ? { transform: `translate(${OUTLINE_W},0) scale(-1,1)` } : {}, svg);
+  el("path", { d: OUTLINE_PATH, class: "outline" }, g0);
+  const glowLayer = el("g", {}, svg), sensorLayer = el("g", {}, svg);
+  const nodes = SITES.map((s, i) => {
+    const [x, Y] = s[key];
+    const y = OUTLINE_L - Y;
+    const gid = `glow${key}${i}`;
+    const grad = el("radialGradient", { id: gid }, defs);
+    const st0 = el("stop", { offset: "0%", "stop-opacity": ".55" }, grad);
+    const st1 = el("stop", { offset: "100%", "stop-opacity": "0" }, grad);
+    const glow = el("circle", { cx: x, cy: y, r: 24, fill: `url(#${gid})`, class: "glow", opacity: 0 }, glowLayer);
+    el("circle", { cx: x, cy: y, r: 15.9, class: "head" }, sensorLayer);
+    const c = el("circle", { cx: x, cy: y, r: 12.7, class: "sensor", fill: "var(--sensor-off)" }, sensorLayer);
+    const lbl = el("text", { x, y: y - 3.2, class: "lbl", fill: "var(--muted)" }, sensorLayer);
+    lbl.textContent = s.id;
+    const val = el("text", { x, y: y + 4.6, class: "val", fill: "var(--muted)" }, sensorLayer);
+    val.textContent = "—";
+    return { c, lbl, val, glow, st0, st1, x, y };
+  });
+  const trail = el("polyline", { class: "trail", points: "" }, svg);
+  const cop = el("g", { visibility: "hidden" }, svg);
+  el("circle", { cx: 0, cy: 0, r: 3.2, class: "cop" }, cop);
+  el("path", { d: "M-6,0 H6 M0,-6 V6", class: "cop" }, cop);
+  card.querySelector(".viz").appendChild(svg);
+
+  // table rows
+  const rows = SITES.map(s => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${s.id}</td><td class="col-ch">${s.ch}</td><td data-c="mv">—</td><td data-c="n">—</td>
+      <td class="barcell"><div class="mbar"><i></i></div></td>`;
+    q("rows").appendChild(tr);
+    return { mv: tr.querySelector('[data-c="mv"]'), n: tr.querySelector('[data-c="n"]'), bar: tr.querySelector("i") };
+  });
+
+  const side = {
+    key, card, q, nodes, rows, cop, trail, copTrail: [], copXY: null, wasOn: false, Fz: 0, tOff: null,
+    conn: null,                       // {kind, close()}
+    mv: new Array(7).fill(0), N: new Array(7).fill(0), peakN: new Array(7).fill(0), peakMV: new Array(7).fill(0),
+    base: cal[key].map(c => c.base), tare: new Array(7).fill(0), tareG: new Array(7).fill(0),
+    hy: Array.from({ length: 7 }, () => ({ on: false })), zeroPending: false, zeroAcc: null,
+    count: 0, hz: 0, lastData: 0, footReported: null, dirty: true,
+  };
+  sides[key] = side;
+
+  q("usb").onclick = () => connectUSB(side);
+  q("ble").onclick = () => connectBLE(side);
+  q("demo").onclick = () => connectDemo(side);
+  q("zero").onclick = () => startZero(side);
+  q("disc").onclick = () => disconnect(side);
+  if (!("serial" in navigator)) { q("usb").disabled = true; q("usb").title = "Web Serial not available in this browser"; }
+  if (!("bluetooth" in navigator)) { q("ble").disabled = true; q("ble").title = "Web Bluetooth not available in this browser"; }
+}
+
+// ---------- connection state ----------
+function setStatus(side, text, cls) {
+  const p = side.q("status");
+  p.textContent = text;
+  p.className = "pill" + (cls ? " " + cls : "");
+}
+function setMsg(side, text) {
+  side.msgText = text || "";
+  side.q("msg").textContent = [side.footWarn, side.msgText].filter(Boolean).join(" ");
+}
+
+function activate(side, kind, closeFn) {
+  side.conn = { kind, close: closeFn };
+  side.card.classList.remove("inactive");
+  side.footReported = null;
+  side.footWarn = "";
+  side.count = 0; side.lastData = 0;
+  side.tOff = null; side.ble = null; side.reconnecting = false;
+  side.send = null; side.demoUnit = null; side.demoWait = 0; side.demoTries = 0;
+  side.copTrail = []; side.copXY = null; side.wasOn = false;
+  side.peakN.fill(0); side.peakMV.fill(0);
+  for (const r of ["usb", "ble", "demo"]) side.q(r).disabled = true;
+  side.q("zero").disabled = false;
+  side.base = cal[side.key].map(c => c.base); side.tare.fill(0); side.tareG.fill(0);
+  side.hy.forEach(h => { h.on = false; });
+  side.q("disc").disabled = false;
+  setStatus(side, `${kind} · waiting for data`, "warn");
+  setMsg(side, "");
+  side.autoZero = true;           // zero automatically on the first second of data if unloaded
+  side.dirty = true;
+  updateWakeLock();
+}
+function deactivate(side, reason) {
+  side.conn = null;
+  side.footWarn = "";
+  side.card.classList.add("inactive");
+  side.q("usb").disabled = !("serial" in navigator);
+  side.q("ble").disabled = !("bluetooth" in navigator);
+  side.q("demo").disabled = false;
+  side.q("zero").disabled = true;
+  side.q("disc").disabled = true;
+  side.mv.fill(0); side.N.fill(0); side.peakN.fill(0); side.peakMV.fill(0);
+  side.copTrail = []; side.copXY = null;
+  side.reconnecting = false;
+  setStatus(side, "Not connected");
+  setMsg(side, reason || "");
+  side.dirty = true;
+  updateWakeLock();
+  // A foot left during a recording: show what has been recorded so far (recording continues for the other foot).
+  if (recording && recording.sides[side.key] && recording.sides[side.key].t.length) showResults(recording, true);
+}
+async function disconnect(side) {
+  const c = side.conn;
+  if (!c) return;
+  try { await c.close(); } catch (e) {}
+  deactivate(side);
+}
+
+// ---------- incoming data ----------
+// devT = board time in ms (USB millis, BLE seq × 20 ms, demo none). Mapped onto the PC clock with the smallest
+// observed delay so both feet share one timebase without BLE/USB batching jitter.
+function onSample(side, mvArr, devT) {
+  for (let i = 0; i < 7; i++) side.mv[i] = mvArr[i];
+  side.count++;
+  const now = performance.now();
+  side.lastData = now;
+  const dev = devT;
+  if (devT == null) devT = now;
+  if (side.tOff == null || now - devT < side.tOff) side.tOff = now - devT;
+  const t = devT + side.tOff;
+
+  if (side.autoZero || side.zeroPending) {
+    if (!side.zeroAcc) side.zeroAcc = { n: 0, sum: new Array(7).fill(0), max: new Array(7).fill(0) };
+    const z = side.zeroAcc;
+    z.n++;
+    for (let i = 0; i < 7; i++) { z.sum[i] += mvArr[i]; z.max[i] = Math.max(z.max[i], mvArr[i]); }
+    if (z.n >= 50) {                                   // ~1 s at 50 Hz
+      const avg = z.sum.map(s => s / z.n);
+      if (side.zeroPending || !avg.some(v => v > 450)) setMsg(side, applyZero(side, avg));
+      else setMsg(side, "Insole looked loaded at connect, so zero was skipped. Unload it and press Zero.");
+      side.autoZero = false; side.zeroPending = false; side.zeroAcc = null;
+      side.q("zero").disabled = !side.conn;
+    }
+  }
+
+  const c = cal[side.key];
+  for (let i = 0; i < 7; i++) {
+    const G = gOf(side.mv[i], side.base[i]);
+    const F = cal.hyst ? hystForce(side.hy[i], G, c[i], side.tareG[i]) : fStatic(G, c[i]);
+    side.N[i] = Math.max(0, F - side.tare[i]);
+    if (side.N[i] > side.peakN[i]) side.peakN[i] = side.N[i];
+    if (side.mv[i] > side.peakMV[i]) side.peakMV[i] = side.mv[i];
+  }
+  // vGRF = Σ Fᵢ and COP = Σ(rᵢ·Fᵢ) / Σ Fᵢ over the 7 sensors (discrete Fz = ∬p dA, x_COP = ∬x p dA / ∬p dA)
+  let Fz = 0, mx = 0, my = 0;
+  for (let i = 0; i < 7; i++) {
+    const [x, y] = SITES[i][side.key], w = side.N[i];
+    Fz += w; mx += x * w; my += y * w;
+  }
+  side.Fz = Fz;
+  if (Fz > GAIT.OFF) {
+    if (!side.wasOn) side.copTrail = [];          // new foot contact -> new COP path
+    side.wasOn = true;
+    side.copXY = [mx / Fz, my / Fz];
+    side.copTrail.push(side.copXY);
+    if (side.copTrail.length > 150) side.copTrail.shift();
+  } else { side.wasOn = false; side.copXY = null; }
+
+  if (recording) {
+    const kind = side.conn ? side.conn.kind : "";
+    const r = recording.sides[side.key] || (recording.sides[side.key] = { t: [], N: [], F: [], kind });
+    r.t.push(t); r.N.push(side.N.slice()); r.F.push(Fz);
+    logRow(recording, side.key, [(t - recording.t0).toFixed(1), side.key, kind,
+      ...side.mv.map(v => v.toFixed(0)), ...side.N.map(v => v.toFixed(1)), Fz.toFixed(1),
+      side.copXY ? side.copXY[0].toFixed(1) : "", side.copXY ? side.copXY[1].toFixed(1) : "",
+      dev == null ? "" : dev.toFixed(0)].join(","));
+  }
+  side.dirty = true;
+}
+
+// Zero: a channel reading inside VREF_OK is unloaded -> that mV becomes its base (VREF). A channel reading above it is
+// preloaded by the insole stack -> base stays at the true no-load level and the preload is subtracted as force (tare),
+// so G = (mV/base − 1)/RF keeps its calibrated meaning. All channels high by the same amount = VREF itself moved.
+function applyZero(side, avg) {
+  const ok = v => v > VREF_OK[0] && v < VREF_OK[1];
+  const lo = Math.min(...avg), hi = Math.max(...avg);
+  side.hy.forEach(h => { h.on = false; });
+  side.tareG.fill(0);
+  if (avg.every(ok)) {
+    side.base = avg.slice(); side.tare.fill(0);
+    return `Zeroed. Base ${lo.toFixed(0)}–${hi.toFixed(0)} mV.`;
+  }
+  if (lo > VREF_OK[0] && hi - lo < 25) {
+    side.base = avg.slice(); side.tare.fill(0);
+    return `⚠ All 7 channels sit at ${lo.toFixed(0)}–${hi.toFixed(0)} mV (expected ≈300): VREF looks shifted. Used as base — check VREF with a meter.`;
+  }
+  const c = cal[side.key], pre = [];
+  for (let i = 0; i < 7; i++) {
+    if (ok(avg[i])) { side.base[i] = avg[i]; side.tare[i] = 0; }
+    else {
+      if (!ok(side.base[i])) side.base[i] = c[i].base;
+      side.tareG[i] = gOf(avg[i], side.base[i]);
+      side.tare[i] = fStatic(side.tareG[i], c[i]);
+      pre.push(`${SITES[i].id} ${avg[i].toFixed(0)} mV = ${side.tare[i].toFixed(0)} N`);
+    }
+  }
+  return `Zeroed. Preload subtracted (base kept at ≈300 mV): ${pre.join(", ")}.`;
+}
+
+function startZero(side) {
+  side.zeroPending = true; side.zeroAcc = null;
+  side.q("zero").disabled = true;
+  setMsg(side, "Zeroing… keep the insole unloaded for 1 s.");
+}
+
+function onLine(side, line) {
+  line = line.trim();
+  if (!line) return;
+  if (line.startsWith("D,")) {
+    const p = line.split(",");
+    if (p.length < 9) return;
+    const v = p.slice(2, 9).map(Number);
+    if (v.every(Number.isFinite)) onSample(side, v, Number.isFinite(+p[1]) ? +p[1] : null);
+  } else if (line.startsWith("#FOOT,")) {
+    footCheck(side, line.charAt(6));
+  } else if (/^(t:|S1:)/.test(line)) {
+    onDemoNLine(side, line);
+  } else if (line.startsWith("# RF")) {             // FSR_Demo_N help line: "... output N|mV, IMU ..."
+    const m = /output (mV|N)\b/.exec(line);
+    if (m) {
+      side.demoUnit = m[1];
+      side.demoWait = 0;
+      if (m[1] === "mV") setMsg(side, "FSR_Demo_N firmware detected (USB, mV mode).");
+    }
+  }
+}
+
+// FSR_Demo_N.ino prints "t:<ms>,S1:<v>,...,S7:<v>,ax:...,sat:<bits>" at 100 Hz, in N by default.
+// The app needs mV (it applies its own per-channel calibration), so it switches the board to mV with 'u'
+// once the help line ('?') has confirmed the current unit.
+function onDemoNLine(side, line) {
+  const kv = {};
+  for (const part of line.split(",")) {
+    const i = part.indexOf(":");
+    if (i > 0) kv[part.slice(0, i)] = parseFloat(part.slice(i + 1));
+  }
+  const v = SITES.map((_, k) => kv["S" + (k + 1)]);
+  if (!v.every(Number.isFinite)) return;
+  if (side.demoUnit === "mV") { onSample(side, v, Number.isFinite(kv.t) ? kv.t : null); return; }
+  if (!side.send) return;
+  if (side.demoUnit === "N") {                    // switch to mV, then confirm with '?'
+    side.demoUnit = null; side.demoWait = 0;
+    if (side.demoTries++ < 4) {
+      setMsg(side, "FSR_Demo_N firmware detected: switching its output from N to mV…");
+      side.send("u?\n");
+    }
+  } else if (++side.demoWait > 100) {             // unit still unknown after ~1 s: ask again
+    side.demoWait = 0;
+    if (side.demoTries++ < 4) side.send("?\n");
+    else setMsg(side, "Board sends FSR_Demo_N lines but never reported its unit (N / mV). Flash FSR_Insole_App instead.");
+  }
+}
+function footCheck(side, f) {
+  if (f !== "L" && f !== "R") return;
+  if (side.footReported === f) return;
+  side.footReported = f;
+  side.footWarn = f !== side.key
+    ? `⚠ This board says it is the ${f === "L" ? "LEFT" : "RIGHT"} insole. Send "f${side.key}" to it (USB) or connect it on the other side.`
+    : "";
+  setMsg(side, side.msgText);
+}
+
+// ---------- USB (Web Serial) ----------
+async function connectUSB(side) {
+  let port;
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+  } catch (e) {
+    if (e.name === "NotFoundError") { setMsg(side, "USB: no port selected."); return; }
+    setMsg(side, /open/i.test(e.message)
+      ? "USB: the port is busy. Close Arduino IDE's Serial Monitor / Plotter (or any other program or tab using it), then press USB again. " +
+        "On the Waveshare ESP32-C6 pick the native USB port (\"USB Serial Device\" / USB JTAG, VID 303A), not the CH343 one."
+      : "USB: " + e.message);
+    return;
+  }
+  let reader = null, stop = false;
+  const close = async () => {
+    stop = true;
+    try { if (reader) await reader.cancel(); } catch (e) {}
+    try { await port.close(); } catch (e) {}
+  };
+  activate(side, "USB", close);
+  let chain = Promise.resolve();             // serialise writes (one writer lock at a time)
+  side.send = text => (chain = chain.then(async () => {
+    try {
+      const w = port.writable.getWriter();
+      await w.write(new TextEncoder().encode(text));
+      w.releaseLock();
+    } catch (e) {}
+  }));
+  side.send("?\n");
+  const dec = new TextDecoder();
+  let buf = "";
+  (async () => {
+    try {
+      while (!stop && port.readable) {
+        reader = port.readable.getReader();
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let nl;
+            while ((nl = buf.indexOf("\n")) >= 0) { onLine(side, buf.slice(0, nl)); buf = buf.slice(nl + 1); }
+            if (buf.length > 4096) buf = "";
+          }
+        } finally { reader.releaseLock(); }
+      }
+    } catch (e) {
+      if (!stop) { await close(); deactivate(side, "USB disconnected: " + e.message); }
+      return;
+    }
+    if (!stop) { await close(); deactivate(side, "USB disconnected."); }
+  })();
+}
+
+// ---------- Bluetooth (Web Bluetooth, Nordic UART) ----------
+// A lost link is re-joined automatically (≈40 s of retries) without resetting zero, calibration or the recording.
+// The packet counter (seq) shows how many 20 ms samples never arrived.
+async function connectBLE(side) {
+  let device;
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "Insole" }, { services: [NUS_SERVICE] }],
+      optionalServices: [NUS_SERVICE],
+    });
+  } catch (e) { setMsg(side, "Bluetooth: " + e.message); return; }
+  const v = new Array(7);
+  let tx = null, stop = false;
+  const onNotify = ev => {
+    const dv = ev.target.value, b = side.ble;
+    if (dv.byteLength < 16 || !b) return;
+    const sq = dv.getUint16(0, true);
+    if (b.seq != null) {
+      const d = (sq - b.seq) & 0xffff;
+      if (d === 0 || d > 0x8000) return;           // duplicate / out of order
+      b.lost += d - 1; b.seqU += d;
+    } else b.seqU = sq;
+    b.seq = sq; b.got++;
+    for (let i = 0; i < 7; i++) v[i] = dv.getUint16(2 + 2 * i, true);
+    onSample(side, v, b.seqU * 20);                // firmware samples at 50 Hz
+  };
+  const attach = async () => {
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(NUS_SERVICE);
+    if (tx) tx.removeEventListener("characteristicvaluechanged", onNotify);
+    tx = await svc.getCharacteristic(NUS_TX);
+    tx.addEventListener("characteristicvaluechanged", onNotify);
+    await tx.startNotifications();
+  };
+  try {
+    setMsg(side, "Connecting to " + (device.name || "device") + "…");
+    await attach();
+  } catch (e) {
+    setMsg(side, "Bluetooth: " + e.message);
+    try { if (device.gatt.connected) device.gatt.disconnect(); } catch (_) {}
+    return;
+  }
+  const close = async () => { stop = true; try { device.gatt.disconnect(); } catch (e) {} };
+  activate(side, "BLE", close);
+  side.ble = { seq: null, seqU: 0, got: 0, lost: 0, drops: 0 };
+  const m = /Insole-([LR])/.exec(device.name || "");
+  if (m) footCheck(side, m[1]);
+  device.addEventListener("gattserverdisconnected", async () => {
+    if (stop || !side.conn || side.conn.close !== close) return;
+    side.ble.drops++; side.reconnecting = true;
+    setMsg(side, "Bluetooth link lost, reconnecting…" + (recording ? " The recording keeps going." : ""));
+    for (let i = 0; i < 12; i++) {
+      await new Promise(r => setTimeout(r, Math.min(500 * 2 ** i, 4000)));
+      if (stop) return;
+      try {
+        await attach();
+        side.reconnecting = false;
+        setMsg(side, `Bluetooth link restored (${side.ble.drops} drop${side.ble.drops > 1 ? "s" : ""} so far).`);
+        return;
+      } catch (e) {}
+    }
+    side.reconnecting = false;
+    if (!stop) { stop = true; deactivate(side, "Bluetooth link lost: no reconnect within 40 s. Is the board on and in range?"); }
+  });
+}
+const lossPct = side => side.ble && side.ble.got ? 100 * side.ble.lost / (side.ble.got + side.ble.lost) : 0;
+
+// ---------- Demo (simulated walking, no hardware) ----------
+function connectDemo(side) {
+  const t0 = performance.now() + (side.key === "R" ? 500 : 0);
+  const bump = (ph, c, w) => Math.exp(-0.5 * ((ph - c) / w) ** 2);
+  // [peak N, phase center, width] per channel, heel -> toe
+  // sensor-level forces like a real insole (≈100–200 kPa peaks)
+  const prof = [[90, .12, .06], [70, .17, .07], [25, .30, .08], [35, .36, .08], [75, .48, .07], [60, .50, .07], [100, .58, .05]];
+  const base = [301, 302, 300, 301, 298, 303, 303];
+  const id = setInterval(() => {
+    const ph = (((performance.now() - t0) / 1100) % 1 + 1) % 1;
+    const c = cal[side.key];
+    const mv = prof.map(([pk, ce, w], i) => {     // inverse of the app's model: loading curve up, scaled unloading down
+      const F = ph < 0.66 ? pk * bump(ph, ce, w) : 0, k = c[i];
+      const G = !(F > 0) ? 0 : !cal.hyst ? gInv(F, k.a, k.b)
+        : ph <= ce ? gInv(F, k.aU, k.bU) : gInv(pk, k.aU, k.bU) * Math.pow(F / pk, 1 / k.bD);
+      return Math.min(3300, Math.round(base[i] * (1 + G * 1e-6 * RF) + (Math.random() - .5) * 4));
+    });
+    onSample(side, mv);
+  }, 20);
+  activate(side, "Demo", () => clearInterval(id));
+  side.autoZero = false;
+  side.base = base.slice();
+  footCheck(side, side.key);
+}
+
+// ---------- rendering ----------
+function render() {
+  const now = performance.now();
+  for (const key of ["L", "R"]) {
+    const s = sides[key];
+    if (!s.dirty && !s.conn) continue;
+    s.dirty = false;
+    const active = !!s.conn;
+    let total = 0, sx = 0, sy = 0, maxI = -1, maxV = 0;
+    for (let i = 0; i < 7; i++) {
+      const n = s.nodes[i], row = s.rows[i];
+      const N = peakHold ? s.peakN[i] : s.N[i];
+      const mv = peakHold ? s.peakMV[i] : s.mv[i];
+      const sat = s.mv[i] >= SAT_MV || (peakHold && s.peakMV[i] >= SAT_MV);
+      const hasData = active && s.count > 0;
+      if (!hasData) {
+        n.c.setAttribute("fill", "var(--sensor-off)");
+        n.glow.setAttribute("opacity", 0);
+        n.val.textContent = "—"; n.val.setAttribute("fill", "var(--muted)"); n.lbl.setAttribute("fill", "var(--muted)");
+        row.mv.textContent = "—"; row.n.textContent = "—"; row.bar.style.width = "0";
+        continue;
+      }
+      const t = colorMode === "N" ? N / FS_N : (mv - MV_MIN) / (MV_MAX - MV_MIN);
+      const col = turbo(t), ink = inkFor(col);
+      const loadedEnough = colorMode === "N" ? N >= 1 : mv > s.base[i] + DEAD_MV;
+      n.c.setAttribute("fill", loadedEnough ? rgb(col) : "var(--sensor-off)");
+      const tc = loadedEnough ? ink : "var(--text)";
+      n.lbl.setAttribute("fill", tc); n.val.setAttribute("fill", tc);
+      n.st0.setAttribute("stop-color", rgb(col)); n.st1.setAttribute("stop-color", rgb(col));
+      n.glow.setAttribute("opacity", loadedEnough ? Math.min(1, 0.25 + t) : 0);
+      const valTxt = colorMode === "N" ? (sat ? "≥" : "") + N.toFixed(0) : mv.toFixed(0);
+      n.val.textContent = sat ? valTxt + "!" : valTxt;
+      row.mv.innerHTML = mv.toFixed(0) + (sat ? ' <span class="sat">SAT</span>' : "");
+      row.n.textContent = (sat ? "≥" : "") + N.toFixed(1);
+      row.bar.style.width = Math.min(100, Math.max(0, t * 100)) + "%";
+      row.bar.style.background = rgb(col);
+      total += N;
+      if (N > maxV) { maxV = N; maxI = i; }
+    }
+    const hasData = active && s.count > 0;
+    s.q("total").textContent = hasData ? total.toFixed(0) : "—";
+    s.q("max").textContent = hasData && maxI >= 0 ? `${SITES[maxI].id} ${maxV.toFixed(0)}` : "—";
+    if (hasData && s.copXY) {
+      const [cx, cy] = s.copXY;
+      s.cop.setAttribute("transform", `translate(${cx.toFixed(2)},${(OUTLINE_L - cy).toFixed(2)})`);
+      s.cop.setAttribute("visibility", "visible");
+      s.q("cop").textContent = `${cx.toFixed(0)}, ${cy.toFixed(0)}`;
+    } else {
+      s.cop.setAttribute("visibility", "hidden");
+      s.q("cop").textContent = "—";
+    }
+    s.trail.setAttribute("points", hasData
+      ? s.copTrail.map(p => `${p[0].toFixed(1)},${(OUTLINE_L - p[1]).toFixed(1)}`).join(" ") : "");
+
+    if (active) {
+      const loss = lossPct(s);
+      if (s.reconnecting) setStatus(s, "BLE · reconnecting…", "warn");
+      else if (s.lastData && now - s.lastData > 1500) setStatus(s, `${s.conn.kind} · no data`, "warn");
+      else if (s.count > 0) setStatus(s, `${s.conn.kind} · live${loss >= 0.05 ? ` · ${loss.toFixed(1)} % lost` : ""}${peakHold ? " · peak" : ""}`,
+        loss > 5 ? "warn" : "on");
+    }
+  }
+  requestAnimationFrame(render);
+}
+setInterval(() => {               // sample rate, once per second
+  for (const k of ["L", "R"]) {
+    const s = sides[k];
+    s.q("hz").textContent = s.conn ? String(s.count - (s.prevCount || 0)) : "—";
+    s.prevCount = s.count;
+  }
+}, 1000);
+
+function renderLegend() {
+  const stops = [];
+  for (let i = 0; i <= 20; i++) stops.push(`${rgb(turbo(i / 20))} ${i * 5}%`);
+  document.getElementById("legendBar").style.background = `linear-gradient(90deg, ${stops.join(",")})`;
+  const ticks = colorMode === "N" ? [0, 200, 400, 600, 800, 1000] : [300, 900, 1500, 2100, 2700, 3300];
+  document.getElementById("legendTicks").innerHTML = ticks.map(t => `<span>${t}</span>`).join("");
+  document.getElementById("legendNote").textContent = colorMode === "N"
+    ? "Force per sensor, N (0–1000 N)" : "Op-amp output, mV (≈300 mV = no load, 3300 mV = ADC limit)";
+}
+
+// ---------- header controls ----------
+function setMode(m) {
+  colorMode = m;
+  document.getElementById("modeN").setAttribute("aria-pressed", m === "N");
+  document.getElementById("modeMV").setAttribute("aria-pressed", m === "MV");
+  renderLegend();
+  for (const k in sides) sides[k].dirty = true;
+}
+document.getElementById("modeN").onclick = () => setMode("N");
+document.getElementById("modeMV").onclick = () => setMode("MV");
+document.getElementById("peakBtn").onclick = e => {
+  peakHold = !peakHold;
+  e.target.setAttribute("aria-pressed", peakHold);
+  e.target.textContent = "Peak hold: " + (peakHold ? "on" : "off");
+};
+document.getElementById("peakReset").onclick = () => {
+  for (const k in sides) { sides[k].peakN.fill(0); sides[k].peakMV.fill(0); sides[k].dirty = true; }
+};
+function stamp(d) {
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+function downloadBlob(name, blob) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function downloadText(name, text) { downloadBlob(name, new Blob([text], { type: "text/csv" })); }
+
+// ---------- data log: while recording, rows are written to this browser's storage (IndexedDB) about once a second,
+// so a long Bluetooth session on a laptop or phone survives a closed tab, a crash or a dropped link. Finished logs
+// stay under "Logs" (download / share / delete) ----------
+const CSV_HEAD = ["t_ms", "foot", "src", ...SITES.map(s => s.id + "_mV"), ...SITES.map(s => s.id + "_N"),
+  "Fz_N", "COPx_mm", "COPy_mm", "dev_ms"].join(",");
+function csvMeta() {
+  const f = a => a.map(v => v.toFixed(1)).join("/");
+  const ble = s => s.ble ? `${s.ble.lost}/${s.ble.got + s.ble.lost} lost, ${s.ble.drops} drops` : "-";
+  const cc = k => cal[k].map(c => cal.hyst
+    ? `${c.aU.toFixed(4)}/${c.bU.toFixed(4)}/${c.aD.toFixed(4)}/${c.bD.toFixed(4)}` : `${c.a.toFixed(4)}/${c.b.toFixed(4)}`).join(" ");
+  return `# Insole Force Monitor, RF ${RF}, base L=${f(sides.L.base)} R=${f(sides.R.base)}` +
+    `, tare_N L=${f(sides.L.tare)} R=${f(sides.R.tare)}` +
+    `, Fz = sum(Fi), BLE L=${ble(sides.L)} R=${ble(sides.R)}, dev_ms = board time\n` +
+    `# cal ${cal.hyst ? "hysteresis, per channel aU/bU/aD/bD (loading / unloading F = a*G^b)" : "single curve, per channel a/b"}` +
+    `, G uS = (mV/base-1)/RF*1e6. L: ${cc("L")}  R: ${cc("R")}`;
+}
+let logDBp = null;
+function logDB() {
+  if (!logDBp) logDBp = new Promise((res, rej) => {
+    if (!("indexedDB" in window)) { rej(new Error("no IndexedDB")); return; }
+    const r = indexedDB.open("insoleLogs", 1);
+    r.onupgradeneeded = () => {
+      r.result.createObjectStore("logs", { keyPath: "id" });
+      r.result.createObjectStore("chunks", { keyPath: ["id", "n"] });
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  return logDBp;
+}
+function idb(stores, mode, fn) {          // one transaction; resolves with fn's request result (if any)
+  return logDB().then(db => new Promise((res, rej) => {
+    const t = db.transaction(stores, mode);
+    const rq = fn(t);
+    t.oncomplete = () => res(rq ? rq.result : undefined);
+    t.onerror = t.onabort = () => rej(t.error);
+  }));
+}
+const logInfo = L => ({ id: L.id, name: L.name, startedAt: L.startedAt, meta: L.meta, head: CSV_HEAD,
+  rows: L.rows, bytes: L.bytes, dur: L.dur, feet: L.feet, done: L.done });
+function logStart(rec) {
+  const L = { id: Date.now(), name: `insole_${stamp(rec.startedAt)}.csv`, startedAt: rec.startedAt.toISOString(),
+    meta: csvMeta(), rows: 0, bytes: 0, dur: 0, feet: "", done: false, n: 0, pend: [], mem: null, saved: 0, t0: rec.t0 };
+  L.chain = idb("logs", "readwrite", t => t.objectStore("logs").put(logInfo(L))).catch(() => { L.mem = []; });
+  L.timer = setInterval(() => logFlush(L), 1000);
+  return L;
+}
+function logRow(rec, foot, line) {
+  const L = rec.log;
+  L.pend.push(line); L.rows++;
+  if (!L.feet.includes(foot)) L.feet = (L.feet + foot).split("").sort().join("");
+}
+function logFlush(L) {
+  const text = L.pend.length ? L.pend.join("\n") + "\n" : "";
+  L.pend = [];
+  L.dur = (performance.now() - L.t0) / 1000;
+  if (text) L.bytes += text.length;
+  L.chain = L.chain.then(() => {
+    if (L.mem) { if (text) L.mem.push(text); L.saved = L.rows; return; }
+    const n = L.n;
+    return idb(["logs", "chunks"], "readwrite", t => {
+      if (text) t.objectStore("chunks").put({ id: L.id, n, text });
+      t.objectStore("logs").put(logInfo(L));
+    }).then(() => { if (text) L.n = n + 1; L.saved = L.rows; })
+      .catch(() => { L.mem = text ? [text] : []; });  // storage failed: keep the rest in memory
+  });
+  return L.chain;
+}
+async function logBlob(id, L) {              // whole CSV: meta + header + stored chunks (+ in-memory remainder)
+  const info = L ? logInfo(L) : await idb("logs", "readonly", t => t.objectStore("logs").get(id));
+  let chunks = [];
+  try {
+    chunks = await idb("chunks", "readonly", t => t.objectStore("chunks").getAll(IDBKeyRange.bound([id, 0], [id, Infinity])));
+  } catch (e) {}
+  const parts = [info.meta + "\n" + (info.head || CSV_HEAD) + "\n", ...chunks.map(c => c.text), ...(L && L.mem ? L.mem : [])];
+  return new Blob(parts, { type: "text/csv" });
+}
+async function logDelete(id) {
+  await idb(["logs", "chunks"], "readwrite", t => {
+    t.objectStore("logs").delete(id);
+    t.objectStore("chunks").delete(IDBKeyRange.bound([id, 0], [id, Infinity]));
+  });
+}
+
+const recBtn = document.getElementById("recBtn"), recInfo = document.getElementById("recInfo");
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+setInterval(() => {
+  if (!recording) return;
+  const L = recording.log;
+  recInfo.textContent = `${mmss((performance.now() - recording.t0) / 1000)} · ${L.rows.toLocaleString()} rows · ` +
+    (L.mem ? "⚠ in memory only" : `saved ${L.saved.toLocaleString()}`);
+}, 1000);
+recBtn.onclick = async () => {
+  if (!recording) {
+    recording = { t0: performance.now(), startedAt: new Date(), sides: {} };
+    recording.log = logStart(recording);
+    recBtn.setAttribute("aria-pressed", "true");
+    recBtn.textContent = "■ Stop & save";
+    recInfo.textContent = "0:00 · 0 rows";
+    resultsEl.hidden = true;
+    updateWakeLock();
+    return;
+  }
+  const rec = recording; recording = null;
+  const L = rec.log;
+  clearInterval(L.timer);
+  recBtn.setAttribute("aria-pressed", "false");
+  recBtn.textContent = "● Record";
+  updateWakeLock();
+  if (!L.rows) {
+    recInfo.textContent = "Nothing recorded (no foot connected).";
+    await L.chain; logDelete(L.id).catch(() => {});
+    return;
+  }
+  L.meta = csvMeta(); L.done = true;
+  await logFlush(L);
+  const blob = await logBlob(L.id, L);
+  downloadBlob(L.name, blob);
+  recInfo.textContent = `Saved ${L.name} (${L.rows.toLocaleString()} rows) · also kept under Logs`;
+  showResults(rec, false);
+  refreshLogCount();
+};
+window.addEventListener("beforeunload", e => {
+  if (recording) { logFlush(recording.log); e.preventDefault(); e.returnValue = ""; }
+});
+
+// keep the screen (and with it Bluetooth) awake while a foot streams over BLE or a recording runs
+let wakeLock = null, wakeBusy = false;
+async function updateWakeLock() {
+  if (!("wakeLock" in navigator) || wakeBusy) return;
+  const want = !!recording || ["L", "R"].some(k => sides[k] && sides[k].conn && sides[k].conn.kind === "BLE");
+  wakeBusy = true;
+  try {
+    if (want && !wakeLock && document.visibilityState === "visible") {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!want && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) {}
+  wakeBusy = false;
+}
+document.addEventListener("visibilitychange", updateWakeLock);
+
+// ---------- Logs dialog ----------
+const logDlg = document.getElementById("logDlg"), logBtn = document.getElementById("logBtn");
+const kb = n => n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " kB";
+async function listLogs() {
+  const all = await idb("logs", "readonly", t => t.objectStore("logs").getAll());
+  return all.sort((a, b) => b.id - a.id);
+}
+async function refreshLogCount() {
+  try {
+    const all = await listLogs();
+    const open = recording ? recording.log.id : null;
+    const lost = all.filter(l => !l.done && l.id !== open).length;
+    logBtn.textContent = `Logs (${all.length})` + (lost ? ` · ${lost} recovered` : "");
+  } catch (e) { logBtn.textContent = "Logs"; }
+}
+async function renderLogs() {
+  const box = document.getElementById("logList");
+  let all;
+  try { all = await listLogs(); } catch (e) { box.innerHTML = `<p class="empty">This browser does not allow local storage here (${e.message}). Recordings are still downloaded on Stop.</p>`; return; }
+  if (!all.length) { box.innerHTML = '<p class="empty">No logs yet. Press ● Record while one or both feet stream data.</p>'; return; }
+  const canShare = !!(navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.csv", { type: "text/csv" })] }));
+  const open = recording ? recording.log.id : null;
+  box.innerHTML = `<div class="scroll"><table><thead><tr><th>File</th><th>Feet</th><th>Length</th><th>Rows</th><th>Size</th><th></th></tr></thead><tbody>${
+    all.map(l => `<tr data-id="${l.id}"><td>${l.name}${l.id === open ? ' <span class="pill on">recording</span>' : !l.done ? ' <span class="pill warn" title="The page closed before Stop; everything up to the last second is kept">recovered</span>' : ""}</td>
+      <td>${l.feet || "—"}</td><td>${mmss(l.dur || 0)}</td><td>${(l.rows || 0).toLocaleString()}</td><td>${kb(l.bytes || 0)}</td>
+      <td class="logact"><button data-a="dl">Download</button>${canShare ? '<button data-a="share">Share</button>' : ""}${l.id === open ? "" : '<button data-a="del">Delete</button>'}</td></tr>`).join("")
+  }</tbody></table></div>`;
+  box.querySelectorAll("button[data-a]").forEach(b => b.onclick = async () => {
+    const id = +b.closest("tr").dataset.id, l = all.find(x => x.id === id);
+    const live = recording && recording.log.id === id ? recording.log : null;
+    try {
+      if (b.dataset.a === "del") {
+        if (!confirm(`Delete ${l.name} from this browser? This cannot be undone.`)) return;
+        await logDelete(id); renderLogs(); refreshLogCount(); return;
+      }
+      if (live) await logFlush(live);
+      const blob = await logBlob(id, live);
+      if (b.dataset.a === "share") await navigator.share({ files: [new File([blob], l.name, { type: "text/csv" })], title: l.name });
+      else downloadBlob(l.name, blob);
+    } catch (e) { if (e.name !== "AbortError") alert("Could not " + b.dataset.a + ": " + e.message); }
+  });
+}
+logBtn.onclick = () => { renderLogs(); logDlg.showModal(); };
+document.getElementById("logClose").onclick = () => logDlg.close();
+
+// ---------- gait analysis of a recording ----------
+const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN;
+const sdev = a => {
+  if (a.length < 2) return 0;
+  const m = mean(a);
+  return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1));
+};
+const finite = a => a.filter(Number.isFinite);
+const sumAt = (row, idx) => idx.reduce((s, i) => s + row[i], 0);
+const PCT = Array.from({ length: 101 }, (_, i) => i);
+function interp(xs, ys, x) {                 // linear, xs increasing
+  const n = xs.length;
+  if (x <= xs[0]) return ys[0];
+  if (x >= xs[n - 1]) return ys[n - 1];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (xs[m] <= x) lo = m; else hi = m; }
+  return ys[lo] + (x - xs[lo]) / ((xs[hi] - xs[lo]) || 1) * (ys[hi] - ys[lo]);
+}
+
+// Foot contacts: Fz rises above ON; start (initial contact) and end (toe-off) are traced to where Fz crosses OFF.
+// A contact touching the start or end of the recording is partial and not analysed.
+function findContacts(t, F) {
+  const out = [], n = F.length;
+  let i = 0;
+  while (i < n) {
+    if (F[i] > GAIT.ON) {
+      let s = i; while (s > 0 && F[s - 1] > GAIT.OFF) s--;
+      let e = i; while (e < n - 1 && F[e + 1] >= GAIT.OFF) e++;
+      out.push({ s, e, ic: t[s], to: t[Math.min(e + 1, n - 1)], partial: s === 0 || e >= n - 1 });
+      i = e + 2;
+    } else i++;
+  }
+  return out;
+}
+
+function analyzeStep(t, N, F, xy, c) {
+  const { s, e, ic } = c, stance = c.to - c.ic, n = t.length;
+  const pct = i => (t[i] - ic) / stance * 100;
+  // gait events
+  let strike = "—", ff = null, ho = null, rearPk = -1, rearPkI = s;
+  for (let i = s; i <= e; i++) {
+    const r = sumAt(N[i], REGION.rear), m = sumAt(N[i], REGION.mid), f = sumAt(N[i], REGION.fore);
+    if (strike === "—") {
+      const mx = Math.max(r, m, f);
+      if (mx > GAIT.REG) strike = mx === r ? "Rearfoot" : mx === f ? "Forefoot" : "Midfoot";
+    }
+    if (ff === null && r > GAIT.REG && f > GAIT.REG) ff = i;
+    if (r > rearPk) { rearPk = r; rearPkI = i; }
+  }
+  if (ff !== null) {
+    for (let i = Math.max(ff, rearPkI); i <= e; i++) if (sumAt(N[i], REGION.rear) < GAIT.REG) { ho = i; break; }
+  }
+  // vGRF: peak 1 in first half of stance, peak 2 in second half, valley between them
+  const half = ic + stance / 2;
+  let p1 = 0, p1i = s, p2 = 0, p2i = e, imp = 0;
+  for (let i = s; i <= e; i++) {
+    if (t[i] <= half) { if (F[i] > p1) { p1 = F[i]; p1i = i; } }
+    else if (F[i] > p2) { p2 = F[i]; p2i = i; }
+    if (i < e) imp += (F[i] + F[i + 1]) / 2 * (t[i + 1] - t[i]) / 1000;
+  }
+  let valley = p1;
+  for (let i = p1i; i <= p2i; i++) valley = Math.min(valley, F[i]);
+  const lr = p1 / Math.max(0.001, (t[p1i] - ic) / 1000);
+  // plantar pressure per sensor: pressure = Fi / active area; pressure-time integral
+  const peakN = new Array(7).fill(0), impS = new Array(7).fill(0);
+  let maxLoaded = 0;
+  for (let i = s; i <= e; i++) {
+    let cnt = 0;
+    for (let k = 0; k < 7; k++) {
+      if (N[i][k] > peakN[k]) peakN[k] = N[i][k];
+      if (N[i][k] > GAIT.LOADED) cnt++;
+      if (i < e) impS[k] += (N[i][k] + N[i + 1][k]) / 2 * (t[i + 1] - t[i]) / 1000;
+    }
+    maxLoaded = Math.max(maxLoaded, cnt);
+  }
+  // COP path during stance
+  const ct = [], cx = [], cy = [];
+  let path = 0;
+  for (let i = s; i <= e; i++) {
+    if (F[i] <= GAIT.OFF) continue;
+    let x = 0, y = 0, w = 0;
+    for (let k = 0; k < 7; k++) { x += xy[k][0] * N[i][k]; y += xy[k][1] * N[i][k]; w += N[i][k]; }
+    if (!(w > 0)) continue;
+    x /= w; y /= w;
+    if (cx.length) path += Math.hypot(x - cx[cx.length - 1], y - cy[cy.length - 1]);
+    ct.push(pct(i)); cx.push(x); cy.push(y);
+  }
+  // force-time curve normalised to 0-100 % stance
+  const tt = [], fv = [];
+  for (let i = s; i <= Math.min(e + 1, n - 1); i++) { tt.push(pct(i)); fv.push(F[i]); }
+  return {
+    ic, to: c.to, stance, strike,
+    ffPct: ff === null ? NaN : pct(ff), hoPct: ho === null ? NaN : pct(ho),
+    p1, p2, valley, lr, imp, maxF: Math.max(p1, p2),
+    peakN, peakKPa: peakN.map(v => v / AREA_MM2 * 1000), pti: impS.map(v => v / AREA_MM2 * 1000),
+    area: maxLoaded * AREA_MM2 / 100,
+    apRange: ct.length ? Math.max(...cy) - Math.min(...cy) : NaN,
+    mlRange: ct.length ? Math.max(...cx) - Math.min(...cx) : NaN,
+    copVel: path / (stance / 1000),
+    curve: PCT.map(p => interp(tt, fv, p)),
+    copX: ct.length > 1 ? PCT.map(p => interp(ct, cx, p)) : null,
+    copY: ct.length > 1 ? PCT.map(p => interp(ct, cy, p)) : null,
+    stride: NaN, swing: NaN, stancePct: NaN, stepTime: NaN, dsPct: NaN, ssPct: NaN,
+  };
+}
+
+function analyzeFoot(key, buf) {
+  const { t, N } = buf;
+  const F = buf.F;                                  // vGRF per sample (Σ sensor forces)
+  const contacts = findContacts(t, F);
+  const xy = SITES.map(S => S[key]);
+  const steps = [];
+  let partial = 0;
+  contacts.forEach((c, k) => {
+    if (c.partial || c.to - c.ic < GAIT.MIN_STANCE) { partial++; return; }
+    const st = analyzeStep(t, N, F, xy, c);
+    const next = contacts[k + 1];
+    if (next && next.ic - c.ic <= GAIT.MAX_STRIDE) {
+      st.stride = next.ic - c.ic;
+      st.swing = st.stride - st.stance;
+      st.stancePct = st.stance / st.stride * 100;
+    }
+    steps.push(st);
+  });
+  return { key, t0: t[0], t1: t[t.length - 1], contacts, steps, partial };
+}
+
+// Both feet: step time (this foot's IC -> other foot's next IC) and double support (overlap of both stances).
+function bilateral(A, B) {
+  for (const [P, Q] of [[A, B], [B, A]]) {
+    for (const st of P.steps) {
+      if (st.ic < Q.t0 || st.to > Q.t1) continue;          // other foot not recording at that time
+      const lim = Number.isFinite(st.stride) ? st.stride : GAIT.MAX_STRIDE / 2;
+      const nx = Q.contacts.find(c => c.ic > st.ic && c.ic - st.ic < lim);
+      if (nx) st.stepTime = nx.ic - st.ic;
+      if (Number.isFinite(st.stride)) {
+        let ov = 0;
+        for (const c of Q.contacts) ov += Math.max(0, Math.min(st.to, c.to) - Math.max(st.ic, c.ic));
+        st.dsPct = ov / st.stride * 100;
+        st.ssPct = st.stancePct - st.dsPct;
+      }
+    }
+  }
+}
+
+function numIn(id) { const v = parseFloat(document.getElementById(id).value); return Number.isFinite(v) && v > 0 ? v : NaN; }
+
+function summarize(rec) {
+  const feet = {};
+  for (const k of ["L", "R"]) if (rec.sides[k] && rec.sides[k].t.length > 10) feet[k] = analyzeFoot(k, rec.sides[k]);
+  if (feet.L && feet.R) bilateral(feet.L, feet.R);
+  const all = Object.values(feet).flatMap(f => f.steps);
+  const strides = finite(all.map(s => s.stride));
+  const stepTimes = finite(all.map(s => s.stepTime));
+  const cad = stepTimes.length ? 60000 / mean(stepTimes) : strides.length ? 120000 / mean(strides) : NaN;
+  const dist = numIn("inDist"), height = numIn("inHeight"), mass = numIn("inMass");
+  let speed = NaN, method = "Enter Distance (or Height) above to get walking speed and step / stride length.";
+  if (dist > 0 && all.length >= 2) {
+    const span = (Math.max(...all.map(s => s.to)) - Math.min(...all.map(s => s.ic))) / 1000;
+    speed = dist / span;
+    method = `Walking speed = ${dist} m / ${span.toFixed(2)} s (first heel strike → last toe-off). Lengths = speed × mean step / stride time.`;
+  } else if (height > 0 && Number.isFinite(cad)) {
+    speed = 0.415 * height / 100 * cad / 60;
+    method = `Estimated from height (no distance entered): step length = 0.415 × ${height} cm, speed = step length × cadence.`;
+  }
+  const strideLen = speed * mean(strides) / 1000;
+  const stepLen = stepTimes.length ? speed * mean(stepTimes) / 1000 : strideLen / 2;
+  const tAll = Object.values(rec.sides).flatMap(s => [s.t[0], s.t[s.t.length - 1]]);
+  return {
+    feet, cad, speed, method, strideLen, stepLen, mass, stepTimes,
+    ds: finite(all.map(s => s.dsPct)), dur: (Math.max(...tAll) - Math.min(...tAll)) / 1000, t0: rec.t0, startedAt: rec.startedAt,
+  };
+}
+
+// ---------- results rendering ----------
+const resultsEl = document.getElementById("results");
+let lastRec = null, lastSum = null;
+const fmt = (a, d = 0) => { a = finite(a); return a.length ? `${mean(a).toFixed(d)} ± ${sdev(a).toFixed(d)}` : "—"; };
+const one = (v, d = 0, unit = "") => Number.isFinite(v) ? v.toFixed(d) + unit : "—";
+const bw = (a, mass) => { a = finite(a); return Number.isFinite(mass) && a.length ? ` (${(mean(a) / (mass * 9.81) * 100).toFixed(0)} %BW)` : ""; };
+function niceMax(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v || 1)));
+  for (const k of [1, 2, 2.5, 5, 10]) if (k * p >= v) return k * p;
+  return 10 * p;
+}
+
+function vgrfChart(steps, color) {
+  const W = 340, H = 180, L = 42, R = 10, T = 12, B = 28;
+  const m = PCT.map(i => mean(steps.map(s => s.curve[i])));
+  const d = PCT.map(i => sdev(steps.map(s => s.curve[i])));
+  const ymax = niceMax(Math.max(...m.map((v, i) => v + d[i]), 50));
+  const X = p => L + p / 100 * (W - L - R), Y = v => H - B - Math.max(0, v) / ymax * (H - T - B);
+  const up = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] + d[i]).toFixed(1)}`);
+  const lo = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] - d[i]).toFixed(1)}`).reverse();
+  const line = PCT.map(i => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(m[i]).toFixed(1)}`).join("");
+  let g = "";
+  for (const v of [0, ymax / 2, ymax]) g += `<line class="axis" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+  for (const p of [0, 25, 50, 75, 100]) g += `<text x="${X(p)}" y="${H - B + 13}" text-anchor="middle">${p}</text>`;
+  const ev = [["FF", mean(finite(steps.map(s => s.ffPct)))], ["HO", mean(finite(steps.map(s => s.hoPct)))]];
+  for (const [lab, p] of ev) if (Number.isFinite(p))
+    g += `<line class="ev" x1="${X(p)}" x2="${X(p)}" y1="${T}" y2="${H - B}"/><text x="${X(p) + 3}" y="${T + 9}">${lab}</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Mean vertical ground reaction force over stance">
+    ${g}<polygon points="${up.join(" ")} ${lo.join(" ")}" fill="${color}" opacity=".18"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="2"/>
+    <text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">% stance (FF foot flat, HO heel-off)</text>
+    <text x="10" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 10 ${(T + H - B) / 2})">vGRF N</text></svg>`;
+}
+
+function insoleResultSVG(key, peakN, peakKPa, copX, copY, color) {
+  const pad = 6;
+  let s = `<svg class="insole" viewBox="${-pad} ${-pad} ${OUTLINE_W + 2 * pad} ${OUTLINE_L + 2 * pad}" role="img" aria-label="Peak pressure and mean COP path">
+    <g ${key === "R" ? `transform="translate(${OUTLINE_W},0) scale(-1,1)"` : ""}><path d="${OUTLINE_PATH}" class="outline"/></g>`;
+  SITES.forEach((S, i) => {
+    const [x, Y] = S[key], y = OUTLINE_L - Y;
+    const col = turbo(peakN[i] / FS_N), ink = peakN[i] >= 1 ? inkFor(col) : "var(--text)";
+    s += `<circle cx="${x}" cy="${y}" r="12.7" class="sensor" fill="${peakN[i] >= 1 ? rgb(col) : "var(--sensor-off)"}"/>
+      <text x="${x}" y="${y - 3.2}" class="lbl" fill="${ink}">${S.id}</text>
+      <text x="${x}" y="${y + 4.6}" class="val" fill="${ink}">${peakKPa[i].toFixed(0)}</text>`;
+  });
+  if (copX) {
+    const pts = PCT.map(i => `${copX[i].toFixed(1)},${(OUTLINE_L - copY[i]).toFixed(1)}`);
+    s += `<polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/>
+      <circle cx="${copX[0].toFixed(1)}" cy="${(OUTLINE_L - copY[0]).toFixed(1)}" r="2.4" fill="${color}"/>
+      <circle cx="${copX[100].toFixed(1)}" cy="${(OUTLINE_L - copY[100]).toFixed(1)}" r="2.4" fill="var(--surface)" stroke="${color}" stroke-width="1.2"/>`;
+  }
+  return s + "</svg>";
+}
+
+function footHTML(key, f, S) {
+  const name = key === "L" ? "Left" : "Right", color = `var(--ser-${key.toLowerCase()})`;
+  const head = `<h3><i style="background:${color}"></i>${name} foot</h3>`;
+  if (!f) return `<div class="res-foot">${head}<div class="empty">No recorded data for this foot.</div></div>`;
+  const st = f.steps;
+  if (!st.length) return `<div class="res-foot">${head}<div class="empty">No complete steps found
+    (a step needs heel strike and toe-off inside the recording, with Fz above ${GAIT.ON} N for at least ${GAIT.MIN_STANCE} ms).</div></div>`;
+  const col = k => st.map(s => s[k]);
+  const strikes = ["Rearfoot", "Midfoot", "Forefoot"].map(k => `${k} ${st.filter(s => s.strike === k).length}`).join(" · ");
+  const meanPeakN = PCT.slice(0, 7).map(k => mean(st.map(s => s.peakN[k])));
+  const meanKPa = meanPeakN.map(v => v / AREA_MM2 * 1000);
+  const meanPti = PCT.slice(0, 7).map(k => mean(st.map(s => s.pti[k])));
+  const withCop = st.filter(s => s.copX);
+  const copX = withCop.length ? PCT.map(i => mean(withCop.map(s => s.copX[i]))) : null;
+  const copY = withCop.length ? PCT.map(i => mean(withCop.map(s => s.copY[i]))) : null;
+  const hiK = meanKPa.indexOf(Math.max(...meanKPa));
+  const rows = (title, list) => `<h4>${title}</h4><table><tbody>${list.map(([a, b]) => `<tr><td class="l">${a}</td><td>${b}</td></tr>`).join("")}</tbody></table>`;
+  const stepRows = st.map((s, i) => `<tr><td>${i + 1}</td><td>${((s.ic - S.t0) / 1000).toFixed(2)}</td><td>${s.stance.toFixed(0)}</td>
+    <td>${one(s.swing)}</td><td>${one(s.stride)}</td><td class="l">${s.strike}</td><td>${one(s.ffPct)}</td><td>${one(s.hoPct)}</td>
+    <td>${s.p1.toFixed(0)}</td><td>${s.valley.toFixed(0)}</td><td>${s.p2.toFixed(0)}</td><td>${s.imp.toFixed(1)}</td>
+    <td>${Math.max(...s.peakKPa).toFixed(0)}</td><td>${one(s.apRange)}</td></tr>`).join("");
+  return `<div class="res-foot">${head}
+    <div class="res-note">${st.length} steps analysed${f.partial ? `, ${f.partial} partial / short contacts skipped` : ""}.</div>
+    <div class="res-row">
+      <div>${vgrfChart(st, color)}</div>
+      <div>${insoleResultSVG(key, meanPeakN, meanKPa, copX, copY, color)}
+        <div class="res-note" style="margin:4px 0 0">Mean peak pressure (kPa) and mean COP path (● heel strike → ○ toe-off)</div></div>
+    </div>
+    ${rows("Gait events", [
+      ["Foot strike pattern", strikes],
+      ["Initial contact (heel strike)", "0 % stance"],
+      ["Foot flat", fmt(col("ffPct")) + " % stance"],
+      ["Heel-off", fmt(col("hoPct")) + " % stance"],
+      ["Toe-off", "100 % stance"],
+    ])}
+    ${rows("Spatiotemporal", [
+      ["Stance time", fmt(col("stance")) + " ms"],
+      ["Swing time", fmt(col("swing")) + " ms"],
+      ["Stride time", fmt(col("stride")) + " ms"],
+      ["Stance / swing", `${fmt(col("stancePct"), 1)} / ${fmt(finite(col("stancePct")).map(v => 100 - v), 1)} %`],
+      ["Step time (to other foot)", fmt(col("stepTime")) + " ms"],
+      ["Double / single support", `${fmt(col("dsPct"), 1)} / ${fmt(col("ssPct"), 1)} % stride`],
+    ])}
+    ${rows("vGRF (Σ sensor forces)", [
+      ["Peak 1 (loading)", fmt(col("p1")) + " N" + bw(col("p1"), S.mass)],
+      ["Valley (midstance)", fmt(col("valley")) + " N" + bw(col("valley"), S.mass)],
+      ["Peak 2 (push-off)", fmt(col("p2")) + " N" + bw(col("p2"), S.mass)],
+      ["Loading rate", fmt(col("lr")) + " N/s"],
+      ["Impulse ∫Fz dt", fmt(col("imp"), 1) + " N·s"],
+    ])}
+    ${rows("Plantar pressure", [
+      ["Peak pressure (highest site)", `${fmt(st.map(s => s.peakKPa[hiK]))} kPa at ${SITES[hiK].id}`],
+      ["Pressure-time integral (highest)", `${Math.max(...meanPti).toFixed(0)} kPa·s at ${SITES[meanPti.indexOf(Math.max(...meanPti))].id}`],
+      ["Contact area (approx., loaded sensors × 5.07 cm²)", fmt(col("area"), 1) + " cm²"],
+      ["COP excursion AP / ML", `${fmt(col("apRange"))} / ${fmt(col("mlRange"))} mm`],
+      ["COP mean velocity", fmt(col("copVel")) + " mm/s"],
+    ])}
+    <h4>Per sensor (mean of steps)</h4>
+    <table><thead><tr><th>Site</th><th>Peak N</th><th>Peak kPa</th><th>PTI kPa·s</th></tr></thead><tbody>
+      ${SITES.map((s, k) => `<tr><td>${s.id}</td><td>${meanPeakN[k].toFixed(0)}</td><td>${meanKPa[k].toFixed(0)}</td><td>${meanPti[k].toFixed(0)}</td></tr>`).join("")}
+    </tbody></table>
+    <details><summary>Per-step table (${st.length})</summary><div class="scroll"><table>
+      <thead><tr><th>#</th><th>IC s</th><th>Stance ms</th><th>Swing ms</th><th>Stride ms</th><th class="l">Strike</th><th>FF %</th><th>HO %</th>
+      <th>Peak1 N</th><th>Valley N</th><th>Peak2 N</th><th>Impulse N·s</th><th>Max kPa</th><th>COP AP mm</th></tr></thead>
+      <tbody>${stepRows}</tbody></table></div></details>
+  </div>`;
+}
+
+function showResults(rec, ongoing) {
+  lastRec = rec;
+  const S = summarize(rec);
+  lastSum = S;
+  const tile = (v, label) => `<div class="stat"><b>${v}</b><span>${label}</span></div>`;
+  const nL = S.feet.L ? S.feet.L.steps.length : 0, nR = S.feet.R ? S.feet.R.steps.length : 0;
+  resultsEl.innerHTML = `
+    <div class="res-head"><h2>Results</h2>
+      <span class="pill${ongoing ? " warn" : ""}">${ongoing ? "Recording continues" : "Recording " + S.startedAt.toLocaleTimeString()}</span>
+      <button id="resExport">Export steps CSV</button><button id="resClose">Close</button></div>
+    <div class="res-note">${S.method}</div>
+    <div class="tiles">
+      ${tile(one(S.speed, 2), "Walking speed m/s")}
+      ${tile(one(S.cad, 0), "Cadence steps/min")}
+      ${tile(one(S.stepLen, 2), "Step length m")}
+      ${tile(one(S.strideLen, 2), "Stride length m")}
+      ${tile(fmt(S.stepTimes), "Step time ms")}
+      ${tile(fmt(S.ds, 1), "Double support %")}
+      ${tile(`${nL} / ${nR}`, "Steps L / R")}
+      ${tile(one(S.dur, 1), "Recorded s")}
+    </div>
+    <div class="res-grid">${footHTML("L", S.feet.L, S)}${footHTML("R", S.feet.R, S)}</div>
+    <div class="res-note" style="margin-top:12px">vGRF = Σ Fᵢ, the sum of the 7 calibrated sensor forces (no area or body-weight scaling):
+      it counts only the load on the sensors, so it reads below the true foot load. Contact: vGRF &gt; ${GAIT.ON} N
+      (start/end at ${GAIT.OFF} N). Foot flat: rearfoot (S1+S4) and forefoot (S13+S10+S14) both &gt; ${GAIT.REG} N. Heel-off: rearfoot back below ${GAIT.REG} N.
+      Pressure = sensor force / 5.07 cm² active area. COP in mm, x = transverse from the insole's left edge, y = heel → toe.</div>`;
+  resultsEl.hidden = false;
+  document.getElementById("resClose").onclick = () => { resultsEl.hidden = true; };
+  document.getElementById("resExport").onclick = () => exportSteps(S);
+  if (!ongoing) resultsEl.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function exportSteps(S) {
+  const head = ["foot", "step", "ic_s", "toeoff_s", "stance_ms", "swing_ms", "stride_ms", "stance_pct", "step_time_ms", "double_support_pct",
+    "strike", "footflat_pct", "heeloff_pct", "peak1_N", "valley_N", "peak2_N", "loading_rate_Nps", "impulse_Ns", "contact_area_cm2",
+    "cop_ap_mm", "cop_ml_mm", "cop_vel_mmps", ...SITES.map(s => s.id + "_peak_kPa"), ...SITES.map(s => s.id + "_PTI_kPas")];
+  const lines = [`# speed_mps=${one(S.speed, 3)}, cadence=${one(S.cad, 1)}, step_len_m=${one(S.stepLen, 3)}, stride_len_m=${one(S.strideLen, 3)}, ${S.method}`, head.join(",")];
+  for (const k of ["L", "R"]) {
+    const f = S.feet[k];
+    if (!f) continue;
+    f.steps.forEach((s, i) => lines.push([k, i + 1, ((s.ic - S.t0) / 1000).toFixed(3), ((s.to - S.t0) / 1000).toFixed(3),
+      s.stance.toFixed(0), one(s.swing), one(s.stride), one(s.stancePct, 1), one(s.stepTime), one(s.dsPct, 1), s.strike,
+      one(s.ffPct, 1), one(s.hoPct, 1), s.p1.toFixed(1), s.valley.toFixed(1), s.p2.toFixed(1), s.lr.toFixed(0), s.imp.toFixed(2),
+      s.area.toFixed(1), one(s.apRange, 1), one(s.mlRange, 1), one(s.copVel, 0),
+      ...s.peakKPa.map(v => v.toFixed(0)), ...s.pti.map(v => v.toFixed(1))].map(v => v === "—" ? "" : v).join(",")));
+  }
+  downloadText(`insole_steps_${stamp(S.startedAt)}.csv`, lines.join("\n"));
+}
+
+// subject / trial inputs: remembered in this browser, results refresh when they change
+for (const id of ["inDist", "inHeight", "inMass"]) {
+  const inp = document.getElementById(id);
+  try { inp.value = localStorage.getItem("insole_" + id) || ""; } catch (e) {}
+  inp.addEventListener("change", () => {
+    try { localStorage.setItem("insole_" + id, inp.value); } catch (e) {}
+    if (lastRec && !resultsEl.hidden) showResults(lastRec, lastRec === recording);
+  });
+}
+
+// ---------- calibration dialog ----------
+const dlg = document.getElementById("calDlg");
+let calDraft = null, calNotes = { L: DEFAULT_CAL.map(c => c.note), R: DEFAULT_CAL.map(c => c.note) };
+const copyCal = src => ({ hyst: src.hyst, L: src.L.map(pickCal), R: src.R.map(pickCal) });
+function fillCalGrid(src) {
+  calDraft = copyCal(src);
+  const grid = document.getElementById("calGrid");
+  document.getElementById("calHyst").checked = calDraft.hyst;
+  grid.className = "calgrid " + (calDraft.hyst ? "hyst-on" : "hyst-off");
+  grid.innerHTML = "";
+  const inp = (key, i, f, v) => `<input data-k="${key}" data-i="${i}" data-f="${f}" type="number" step="0.0001" value="${+v.toFixed(5)}">`;
+  for (const key of ["L", "R"]) {
+    const box = document.createElement("div");
+    box.innerHTML = `<b>${key === "L" ? "Left" : "Right"}</b>
+      <div class="scroll"><table>
+        <thead><tr><th></th><th class="grp" colspan="2">Loading</th><th class="grp" colspan="2">Unloading</th><th class="grp" colspan="2">Single curve</th><th></th></tr>
+        <tr><th>Ch · site</th><th>a</th><th>b</th><th>a</th><th>b</th><th>a</th><th>b</th><th>Base mV</th></tr></thead><tbody></tbody></table></div>`;
+    const tb = box.querySelector("tbody");
+    SITES.forEach((s, i) => {
+      const c = calDraft[key][i], tr = document.createElement("tr");
+      tr.title = calNotes[key][i] || "";
+      const zeroed = sides[key].conn ? sides[key].base[i] : c.base;
+      tr.innerHTML = `<td>${s.ch} · ${s.id}</td>
+        <td class="hyst">${inp(key, i, "aU", c.aU)}</td><td class="hyst">${inp(key, i, "bU", c.bU)}</td>
+        <td class="hyst">${inp(key, i, "aD", c.aD)}</td><td class="hyst">${inp(key, i, "bD", c.bD)}</td>
+        <td class="single">${inp(key, i, "a", c.a)}</td><td class="single">${inp(key, i, "b", c.b)}</td>
+        <td title="test base ${c.base.toFixed(1)} mV">${zeroed.toFixed(1)}</td>`;
+      tb.appendChild(tr);
+    });
+    grid.appendChild(box);
+  }
+}
+function readCalGrid() {
+  const out = copyCal(calDraft);
+  out.hyst = document.getElementById("calHyst").checked;
+  dlg.querySelectorAll("input[data-k]").forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (Number.isFinite(v) && v > 0) out[inp.dataset.k][+inp.dataset.i][inp.dataset.f] = v;
+  });
+  return out;
+}
+document.getElementById("calHyst").onchange = () => fillCalGrid(readCalGrid());
+document.getElementById("calBtn").onclick = () => { document.getElementById("calReport").textContent = ""; fillCalGrid(cal); dlg.showModal(); };
+document.getElementById("calCancel").onclick = () => dlg.close();
+document.getElementById("calDefaults").onclick = () => {
+  calNotes = { L: DEFAULT_CAL.map(c => c.note), R: DEFAULT_CAL.map(c => c.note) };
+  document.getElementById("calReport").textContent = "Defaults from S1-S7test results.xlsx (not saved until you press Save).";
+  fillCalGrid(defaultCal());
+};
+document.getElementById("calCopy").onclick = () => {
+  const c = readCalGrid(); c.R = c.L.map(pickCal); calNotes.R = calNotes.L.slice(); fillCalGrid(c);
+};
+document.getElementById("calSave").onclick = () => {
+  const c = readCalGrid();
+  cal ={ hyst: c.hyst, L: c.L, R: c.R }; saveCal(); dlg.close();
+  for (const k of ["L", "R"]) {
+    const s = sides[k];
+    s.hy.forEach(h => { h.on = false; });
+    if (!s.conn) s.base = cal[k].map(x => x.base);
+    else if (s.tare.some(v => v > 0)) s.tare = s.tareG.map((g, i) => fStatic(g, cal[k][i]));   // preload in the new curve
+    s.dirty = true;
+  }
+};
+
+// ---------- fit a UTM workbook in the browser (same method as tools/cal_from_xlsx.py) ----------
+async function unzip(buf) {                    // minimal ZIP reader for .xlsx (stored / deflate)
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), dec = new TextDecoder();
+  let e = buf.byteLength - 22;
+  while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("not an .xlsx (zip) file");
+  const files = {};
+  for (let i = 0, p = dv.getUint32(e + 16, true), n = dv.getUint16(e + 10, true); i < n && dv.getUint32(p, true) === 0x02014b50; i++) {
+    const nl = dv.getUint16(p + 28, true);
+    files[dec.decode(u8.subarray(p + 46, p + 46 + nl))] =
+      { method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) };
+    p += 46 + nl + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  return async name => {
+    const f = files[name];
+    if (!f) return null;
+    const s = f.off + 30 + dv.getUint16(f.off + 26, true) + dv.getUint16(f.off + 28, true);
+    const data = u8.subarray(s, s + f.size);
+    if (f.method === 0) return dec.decode(data);
+    if (f.method !== 8 || !("DecompressionStream" in window)) throw new Error("this browser cannot unpack the .xlsx; save it as .csv");
+    return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+  };
+}
+async function readXlsx(buf) {                 // first worksheet -> rows of cell values
+  const read = await unzip(buf), xml = s => new DOMParser().parseFromString(s, "application/xml");
+  const ss = [], sst = await read("xl/sharedStrings.xml");
+  if (sst) for (const si of xml(sst).getElementsByTagName("si")) ss.push([...si.getElementsByTagName("t")].map(t => t.textContent).join(""));
+  let path = "xl/worksheets/sheet1.xml";
+  try {
+    const sh = xml(await read("xl/workbook.xml")).getElementsByTagName("sheet")[0], rid = sh.getAttribute("r:id");
+    for (const r of xml(await read("xl/_rels/workbook.xml.rels")).getElementsByTagName("Relationship"))
+      if (r.getAttribute("Id") === rid) { const t = r.getAttribute("Target"); path = t.startsWith("/") ? t.slice(1) : "xl/" + t; }
+  } catch (e) {}
+  const doc = await read(path);
+  if (!doc) throw new Error("no worksheet found");
+  const rows = [];
+  for (const row of xml(doc).getElementsByTagName("row")) {
+    const out = [];
+    for (const c of row.getElementsByTagName("c")) {
+      let col = 0;
+      for (const ch of (c.getAttribute("r") || "A").match(/^[A-Z]+/)[0]) col = col * 26 + ch.charCodeAt(0) - 64;
+      const t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0];
+      out[col - 1] = t === "s" ? ss[+v.textContent] : t === "inlineStr" ? c.textContent : v ? (t === "str" ? v.textContent : +v.textContent) : null;
+    }
+    rows[row.hasAttribute("r") ? +row.getAttribute("r") - 1 : rows.length] = out;
+  }
+  return Array.from(rows, r => r || []);
+}
+function fitPow(G, F) {                        // F = a*G^b: log-log start, then Gauss-Newton on force residuals
+  const lx = G.map(Math.log), ly = F.map(Math.log), mx = mean(lx), my = mean(ly);
+  let sxy = 0, sxx = 0;
+  lx.forEach((x, i) => { sxy += (x - mx) * (ly[i] - my); sxx += (x - mx) ** 2; });
+  let b = sxy / sxx, a = Math.exp(my - b * mx);
+  for (let it = 0; it < 80; it++) {
+    let j11 = 0, j12 = 0, j22 = 0, r1 = 0, r2 = 0;
+    G.forEach((g, i) => {
+      const d1 = Math.pow(g, b), d2 = a * d1 * Math.log(g), e = F[i] - a * d1;
+      j11 += d1 * d1; j12 += d1 * d2; j22 += d2 * d2; r1 += d1 * e; r2 += d2 * e;
+    });
+    const det = j11 * j22 - j12 * j12;
+    if (!(Math.abs(det) > 0)) break;
+    a += (j22 * r1 - j12 * r2) / det; b += (j11 * r2 - j12 * r1) / det;
+  }
+  return { a, b, rmse: Math.sqrt(mean(G.map((g, i) => (F[i] - a * Math.pow(g, b)) ** 2))) };
+}
+function calFromRows(rows) {                   // 7 column pairs utm_N | mean_mV, loading then unloading
+  const num = v => typeof v === "number" ? v : v == null || v === "" ? NaN : parseFloat(v);
+  const start = rows.findIndex(r => r.some(v => Number.isFinite(num(v))));
+  const data = rows.slice(start), out = [], notes = [];
+  for (let ch = 0; ch < 7; ch++) {
+    const pts = data.map(r => [num(r[2 * ch]), num(r[2 * ch + 1])]).filter(p => Number.isFinite(p[0]));
+    const label = `UTM ${String((rows[0] || [])[2 * ch] || "S" + (ch + 1)).toUpperCase()}`;
+    const zeros = pts.filter(p => p[0] === 0 && Number.isFinite(p[1])).map(p => p[1]);
+    if (!zeros.length) { out.push(null); notes.push(`${label}: no 0 N reading for the base, channel not changed`); continue; }
+    const base = mean(zeros), imax = pts.reduce((m, p, i) => p[0] > pts[m][0] ? i : m, 0);
+    const P = pts.map((p, i) => ({ F: p[0], G: (p[1] / base - 1) / RF * 1e6, up: i <= imax, ok: Number.isFinite(p[1]) && p[1] < SAT_MV && p[0] > 0 }))
+      .filter(p => p.ok && p.G > 0);
+    if (P.length < 4) { out.push(null); notes.push(`${label}: only ${P.length} usable points, channel not changed`); continue; }
+    const all = fitPow(P.map(p => p.G), P.map(p => p.F)), c = { a: all.a, b: all.b, base }, nt = [];
+    for (const [up, A, B, name] of [[true, "aU", "bU", "load"], [false, "aD", "bD", "unload"]]) {
+      const Q = P.filter(p => p.up === up);
+      if (Q.length >= 4) { const f = fitPow(Q.map(p => p.G), Q.map(p => p.F)); c[A] = f.a; c[B] = f.b; nt.push(`${name} ${Q.length} pts rmse ${f.rmse.toFixed(1)} N`); }
+      else { c[A] = all.a; c[B] = all.b; nt.push(`${name} leg missing`); }
+    }
+    out.push(c);
+    notes.push(`${label}: base ${base.toFixed(1)} mV, ${nt.join(", ")}, single curve rmse ${all.rmse.toFixed(1)} N, max ${Math.max(...P.map(p => p.F)).toFixed(0)} N`);
+  }
+  return { out, notes };
+}
+document.getElementById("calFile").onchange = async ev => {
+  const file = ev.target.files[0], rep = document.getElementById("calReport");
+  ev.target.value = "";
+  if (!file) return;
+  try {
+    const rows = /\.csv$/i.test(file.name)
+      ? (await file.text()).split(/\r?\n/).map(l => l.split(/[,;\t]/).map(s => s.trim()))
+      : await readXlsx(await file.arrayBuffer());
+    const { out, notes } = calFromRows(rows), draft = readCalGrid(), tgt = document.getElementById("calTarget").value;
+    for (const key of tgt.split("")) out.forEach((c, i) => { if (c) { draft[key][i] = c; calNotes[key][i] = notes[i]; } });
+    fillCalGrid(draft);
+    rep.textContent = `${file.name} → ${tgt === "LR" ? "both feet" : tgt === "L" ? "Left" : "Right"} (press Save to use it):\n` + notes.join("\n");
+  } catch (e) { rep.textContent = `Could not read ${file.name}: ${e.message}`; }
+};
+
+// ---------- start ----------
+buildSide("L");
+buildSide("R");
+renderLegend();
+refreshLogCount();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
