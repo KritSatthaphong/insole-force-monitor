@@ -12,10 +12,14 @@ Bluefy on iPhone). Press **Demo** to try it without hardware.
 | `insole-app/index.html` | The app (single file, no install) |
 | `tools/cal_from_xlsx.py` | Per-sensor loading / unloading fits from the UTM summary workbook (`S1-S7test results.xlsx`) — the app's defaults |
 | `tools/fit_cal.py` | Older single-curve fit from the raw UTM CAL CSVs |
+| `tools/check_cal.py` | Runs the app's mV → N conversion over a UTM CAL log and reports bias / RMSE / max error |
 
 ## 1. Flash the boards
 Arduino IDE → board "ESP32C6 Dev Module", core 3.3.x, **USB CDC On Boot: Enabled** (Disabled also builds; then use
-the CH343 port). No extra libraries.
+the CH343 port). Library: **SparkFun BMI270 Arduino Library** (Library Manager).
+Firmware v1.2 also streams the BMI270 IMU (SDA GPIO23, SCL GPIO22; ±16 g, ±2000 °/s, read at 200 Hz) and subtracts the
+measured gyro zero offset `GYRO_BIAS = {0.030, -1.175, 0.180}` °/s (mean of three 10 s still measurements); re-measure it if
+the IMU board is replaced. Send `?`: `|a|` should read ≈ 1.00 g with the board lying still.
 Flash the same sketch on both boards, then in Serial Monitor (115200) send `fL` to the left board and `fR` to the right one
 (saved in flash; BLE name becomes `Insole-L` / `Insole-R`). Close Serial Monitor before using the app over USB.
 
