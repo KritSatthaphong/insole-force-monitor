@@ -17,9 +17,10 @@ Bluefy on iPhone). Press **Demo** to try it without hardware.
 ## 1. Flash the boards
 Arduino IDE → board "ESP32C6 Dev Module", core 3.3.x, **USB CDC On Boot: Enabled** (Disabled also builds; then use
 the CH343 port). Library: **SparkFun BMI270 Arduino Library** (Library Manager).
-Firmware v1.2 also streams the BMI270 IMU (SDA GPIO23, SCL GPIO22; ±16 g, ±2000 °/s, read at 200 Hz) and subtracts the
+Firmware v1.3 also streams the BMI270 IMU (SDA GPIO23, SCL GPIO22; ±16 g, ±2000 °/s, read at 200 Hz) and subtracts the
 measured gyro zero offset `GYRO_BIAS = {0.030, -1.175, 0.180}` °/s (mean of three 10 s still measurements); re-measure it if
-the IMU board is replaced. Send `?`: `|a|` should read ≈ 1.00 g with the board lying still.
+the IMU board is replaced. The shock value (`apk`) is the peak dynamic acceleration |a − g| with gravity removed
+(gravity tracked with the gyro on the board). Send `?`: `|a|` should read ≈ 1.00 g with the board lying still.
 Flash the same sketch on both boards, then in Serial Monitor (115200) send `fL` to the left board and `fR` to the right one
 (saved in flash; BLE name becomes `Insole-L` / `Insole-R`). Close Serial Monitor before using the app over USB.
 
@@ -51,7 +52,8 @@ otherwise press **Zero** with the foot off the insole.
 - Walking speed: fill **Distance** (m walked during the recording) — or **Height** for an estimate. **Mass** adds %BW.
 - **IMU (firmware v1.1+):** live heel-strike shock, foot pitch and eversion; in Results, IMU stride length and speed
   (zero-velocity updates), foot clearance, strike / toe-off angles, eversion and foot progression angle. Set how the BMI270
-  sits in the insole under Calibration → IMU mounting (default toe +Y, up +Z).
+  sits in the insole under Calibration → IMU mounting. Default: sensor +Y points down (ay = −1 g standing) and +X to the heel,
+  i.e. toe axis −X, up axis −Y. Results plot vGRF, foot pitch and eversion stacked on one % gait-cycle axis, angles 0° at heel strike.
 - **BW cal / BW scale:** optional. BW cal on a foot measures factor = body weight / Σ sensor force while standing on that foot;
   the BW scale button multiplies vGRF by it (off by default, so vGRF stays Σ Fᵢ).
 - **Calibration check** (in Calibration): runs the app's conversion over the built-in UTM data or a UTM file and shows

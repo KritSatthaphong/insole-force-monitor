@@ -1,8 +1,9 @@
-// FSR_Insole_App.ino  v1.2  (2026-10-29)
+// FSR_Insole_App.ino  v1.3  (2026-10-29)
 // Smart Insole -> Insole Force Monitor web app.
 // Streams raw mV of 7 FlexiForce A401 channels + BMI270 IMU at 50 Hz over BOTH:
 //   - USB serial (115200):  "D,<ms>,<mV1>,...,<mV7>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<apk>"   + "#FOOT,L" every 2 s
-//       ax..az = mean accel of the frame (mg), gx..gz = mean gyro (0.1 deg/s), apk = peak |a| in the frame (mg)
+//       ax..az = mean accel of the frame (mg), gx..gz = mean gyro (0.1 deg/s),
+//       apk = peak |a - g| in the frame (mg): dynamic acceleration, gravity removed
 //       (no IMU found -> the line stops after mV7, like v1.0)
 //   - BLE (Nordic UART service):
 //       TX  6E400003: 16-byte notify = uint16 seq + 7 x uint16 mV (little-endian), unchanged from v1.0
@@ -12,7 +13,10 @@
 //
 // IMU: SparkFun BMI270 (Qwiic) at 0x68, SDA GPIO23, SCL GPIO22, 400 kHz. Accel +-16 g, gyro +-2000 deg/s, ODR 200 Hz.
 // It is read at 200 Hz; each 20 ms frame sends the mean of its ~4 readings (for orientation / stride integration)
-// plus the peak |a| (the heel-strike shock, which a 50 Hz average would smear).
+// plus the peak dynamic |a - g| (the heel-strike shock, which a 50 Hz average would smear). Gravity g is tracked in sensor
+// axes: rotated with the gyro every reading and pulled towards the accelerometer while |a| is close to 1 g (foot still).
+// The mean accel values still include gravity (the app needs it for foot orientation).
+// Mounting on the insole: sensor +Y points down (ay = -1 g standing), +X points to the heel.
 // Gyro zero offset (GYRO_BIAS, deg/s) is subtracted from every reading: mean of 3 x 10 s still measurements of this
 // BMI270 (rounds 4-6: gx +0.034/+0.033/+0.024, gy -1.179/-1.173/-1.173, gz +0.179/+0.181/+0.180 dps; sd ~0.12 dps).
 // Re-measure it if the IMU board is replaced.
@@ -38,7 +42,7 @@
 #include <BLE2902.h>
 #endif
 
-#define FW_VERSION   "1.2"
+#define FW_VERSION   "1.3"
 #define NUS_SERVICE  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define NUS_RX       "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"   // app -> board (write)
 #define NUS_TX       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"   // board -> app (notify, FSR)
@@ -57,7 +61,7 @@ const float    GYRO_BIAS[3]    = {0.030f, -1.175f, 0.180f};   // deg/s, subtract
 // IMU frame accumulator (declared before the functions that use it)
 struct ImuFrame {
   float ax, ay, az, gx, gy, gz;   // sums: g, deg/s
-  float pk2;                      // peak |a|^2 (g^2)
+  float pk2;                      // peak |a - g|^2 (g^2)
   uint8_t n;
 };
 
@@ -75,8 +79,10 @@ String serialBuf;
 BMI270 imu;
 bool imuOk = false;
 float imuRestG = 0;               // |a| averaged at boot (should be ~1.00 g)
+float grav[3] = {0, -1, 0};       // gravity estimate in sensor axes (g); +Y points down on the insole
+const float GRAV_K = 0.02f;       // pull towards the accelerometer per reading while still (tau ~0.25 s at 200 Hz)
 ImuFrame acc = {};
-int16_t imuOut[7] = {0, 0, 1000, 0, 0, 0, 1000};   // last frame sent: mg, 0.1 deg/s, mg
+int16_t imuOut[7] = {0, -1000, 0, 0, 0, 0, 0};     // last frame sent: mg, 0.1 deg/s, mg (insole flat: ay = -1 g)
 
 void printInfo() {
   Serial.printf("#FOOT,%c\n", foot);
@@ -156,15 +162,18 @@ bool setupIMU() {
   if (imu.setConfig(ac) != BMI2_OK || imu.setConfig(gc) != BMI2_OK) return false;
 
   // scale self-check: |a| at rest should be ~1.00 g (if it reads ~0.5 or ~2, the range setting did not reach the conversion)
-  float s = 0;
+  float s = 0, sv[3] = {0, 0, 0};
   uint8_t n = 0;
   for (uint8_t i = 0; i < 40; i++) {
     delay(5);
     if (imu.getSensorData() != BMI2_OK) continue;
     s += sqrtf(imu.data.accelX * imu.data.accelX + imu.data.accelY * imu.data.accelY + imu.data.accelZ * imu.data.accelZ);
+    sv[0] += imu.data.accelX; sv[1] += imu.data.accelY; sv[2] += imu.data.accelZ;
     n++;
   }
   imuRestG = n ? s / n : 0;
+  float m = sqrtf(sv[0] * sv[0] + sv[1] * sv[1] + sv[2] * sv[2]);
+  if (m > 0.5f) for (uint8_t k = 0; k < 3; k++) grav[k] = sv[k] / m;   // start the gravity estimate from the boot pose
   return n > 0;
 }
 
@@ -175,12 +184,30 @@ void pollIMU() {
   next += 1000000UL / IMU_HZ;
   if ((int32_t)(micros() - next) > 20000) next = micros();   // fell behind: resync
   if (imu.getSensorData() != BMI2_OK) return;
+  static uint32_t lastUs = 0;
+  uint32_t nowUs = micros();
+  float dt = lastUs ? (nowUs - lastUs) * 1e-6f : 1.0f / IMU_HZ;
+  if (dt > 0.05f) dt = 0.05f;
+  lastUs = nowUs;
   float ax = imu.data.accelX, ay = imu.data.accelY, az = imu.data.accelZ;
+  float gx = imu.data.gyroX - GYRO_BIAS[0], gy = imu.data.gyroY - GYRO_BIAS[1], gz = imu.data.gyroZ - GYRO_BIAS[2];
   acc.ax += ax; acc.ay += ay; acc.az += az;
-  acc.gx += imu.data.gyroX - GYRO_BIAS[0];
-  acc.gy += imu.data.gyroY - GYRO_BIAS[1];
-  acc.gz += imu.data.gyroZ - GYRO_BIAS[2];
-  float m2 = ax * ax + ay * ay + az * az;
+  acc.gx += gx; acc.gy += gy; acc.gz += gz;
+
+  // gravity in sensor axes: a world-fixed vector seen from the rotating sensor, d(grav)/dt = -w x grav
+  const float D2R = 0.01745329f;
+  float wx = gx * D2R, wy = gy * D2R, wz = gz * D2R;
+  float cx = wy * grav[2] - wz * grav[1], cy = wz * grav[0] - wx * grav[2], cz = wx * grav[1] - wy * grav[0];
+  grav[0] -= cx * dt; grav[1] -= cy * dt; grav[2] -= cz * dt;
+  float an = sqrtf(ax * ax + ay * ay + az * az);
+  if (fabsf(an - 1.0f) < 0.1f) {         // quasi-static: correct the drift towards the measured gravity
+    grav[0] += GRAV_K * (ax - grav[0]); grav[1] += GRAV_K * (ay - grav[1]); grav[2] += GRAV_K * (az - grav[2]);
+  }
+  float gn = sqrtf(grav[0] * grav[0] + grav[1] * grav[1] + grav[2] * grav[2]);
+  if (gn > 0.1f) { grav[0] /= gn; grav[1] /= gn; grav[2] /= gn; }
+
+  float dx = ax - grav[0], dy = ay - grav[1], dz = az - grav[2];
+  float m2 = dx * dx + dy * dy + dz * dz;   // dynamic acceleration, gravity removed
   if (m2 > acc.pk2) acc.pk2 = m2;
   acc.n++;
 }

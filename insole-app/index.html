@@ -139,8 +139,6 @@ svg .trail { fill: none; stroke: var(--text); stroke-width: 1.1; stroke-linejoin
 details summary { cursor: pointer; color: var(--accent); margin-top: 12px; font-size: 13px; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 .stats.imu { margin-top: -2px; }
-.res-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
-@media (max-width: 520px) { .res-pair { grid-template-columns: 1fr; } }
 .stat small { display: block; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -364,13 +362,13 @@ function saveCal() { try { localStorage.setItem("insoleCal_v2", JSON.stringify(c
 // Body-weight factors per foot ({k, mass, sumN, cv, at}), the BW-scale toggle and the IMU mounting; kept in this browser.
 let settings = loadSettings();
 function loadSettings() {
-  const d = { bwOn: false, bw: { L: null, R: null }, mount: { fwd: "+Y", up: "+Z" } };
+  const d = { bwOn: false, bw: { L: null, R: null }, mount: { fwd: "-X", up: "-Y" }, mountV: 2 };   // insole: +X to heel, +Y down
   try {
     const s = JSON.parse(localStorage.getItem("insoleSettings_v1"));
     if (s) {
       d.bwOn = !!s.bwOn;
       for (const k of ["L", "R"]) if (s.bw && s.bw[k] && s.bw[k].k > 0) d.bw[k] = s.bw[k];
-      if (s.mount && AXES.includes(s.mount.fwd) && AXES.includes(s.mount.up) && s.mount.fwd[1] !== s.mount.up[1]) d.mount = s.mount;
+      if (s.mountV === 2 && s.mount && AXES.includes(s.mount.fwd) && AXES.includes(s.mount.up) && s.mount.fwd[1] !== s.mount.up[1]) d.mount = s.mount;
     }
   } catch (e) {}
   return d;
@@ -391,6 +389,7 @@ function mountMatrix() {
 }
 let mountM = mountMatrix();
 const toBody = (M, v) => [dot(M[0], v), dot(M[1], v), dot(M[2], v)];
+const fromBody = (M, b) => [0, 1, 2].map(j => M[0][j] * b[0] + M[1][j] * b[1] + M[2][j] * b[2]);   // body -> sensor axes
 const qmul = (p, q) => [p[0] * q[0] - p[1] * q[1] - p[2] * q[2] - p[3] * q[3], p[0] * q[1] + p[1] * q[0] + p[2] * q[3] - p[3] * q[2],
   p[0] * q[2] - p[1] * q[3] + p[2] * q[0] + p[3] * q[1], p[0] * q[3] + p[1] * q[2] - p[2] * q[1] + p[3] * q[0]];
 function qrot(q, v) {                         // rotate v by unit quaternion q (body -> world)
@@ -480,7 +479,7 @@ function buildSide(key) {
           <div class="stat"><b data-r="cop">—</b><span>COP x, y mm</span></div>
         </div>
         <div class="stats imu">
-          <div class="stat" title="Peak |a| over the last second (200 Hz IMU, includes 1 g gravity)"><b data-r="shock">—</b><span>Shock g</span></div>
+          <div class="stat" title="Peak dynamic acceleration |a − g| over the last second (200 Hz IMU, gravity removed; firmware v1.3+)"><b data-r="shock">—</b><span>Shock g</span></div>
           <div class="stat" title="Foot pitch: + toes up"><b data-r="pitch">—</b><span>Pitch °</span></div>
           <div class="stat" title="Foot roll: + eversion (lateral edge up), − inversion"><b data-r="ever">—</b><span>Eversion °</span></div>
           <div class="stat" title="Body-weight factor: vGRF × factor = foot load"><b data-r="bwk">—</b><span data-r="bwlbl">BW ×</span></div>
@@ -961,7 +960,7 @@ function connectDemo(side) {
 }
 
 // Simulated foot-mounted IMU for the demo: stride 1.40 m in 1.1 s, toe-out 7°, heel-strike pitch +18°, toe-off −38°,
-// eversion −4° → +6° in stance, 10 cm swing clearance, heel-strike shock. Sensor axes = body axes (toe +Y, up +Z).
+// eversion −4° → +6° in stance, 10 cm swing clearance, heel-strike shock. Sent in sensor axes for the current IMU mounting.
 const DEMO_IMU = { L: 1.40, CLEAR: 0.10, FPA: 7, P: [[0, 18], [0.12, 0], [0.40, 0], [0.66, -38], [0.80, -12], [1, 18]],
   E: [[0, -4], [0.25, 6], [0.5, 1], [0.66, -2], [1, -4]] };
 function demoPose(ph, key) {                       // ph unwrapped (cycles), so position keeps increasing
@@ -992,8 +991,9 @@ function demoImu(ph, key) {
   const w = [1, 2, 3].map(i => sg * dq[i] / h * DEG);
   const imp = ph < 0.04 ? 2.6 * Math.exp(-ph * T / 0.012) : 0;              // heel-strike transient (g)
   const nz = () => (Math.random() - 0.5) * 0.02;
-  return [sf[0] + nz(), sf[1] + nz(), sf[2] + 0.4 * imp + nz(), ...w.map(x => x + (Math.random() - 0.5) * 1.5),
-    norm(sf) + imp + Math.abs(nz())];
+  const dyn = qrot(qinv(P1.q), acc.map(x => x / G0));                         // dynamic acceleration, gravity removed
+  const fb = [sf[0] + nz(), sf[1] + nz(), sf[2] + 0.4 * imp + nz()], wb = w.map(x => x + (Math.random() - 0.5) * 1.5);
+  return [...fromBody(mountM, fb), ...fromBody(mountM, wb), norm(dyn) + imp + Math.abs(nz())];
 }
 
 // ---------- rendering ----------
@@ -1133,7 +1133,7 @@ function csvMeta() {
     `, tare_N L=${f(sides.L.tare)} R=${f(sides.R.tare)}` +
     `, Fz = sum(Fi), BLE L=${ble(sides.L)} R=${ble(sides.R)}, dev_ms = board time` +
     `, BW factor L=${one(bwK("L"), 4)} R=${one(bwK("R"), 4)} (Fz_BW_N = Fz × factor, scaling ${settings.bwOn ? "on" : "off"} in the app)` +
-    `, IMU sensor axes (toe ${settings.mount.fwd}, up ${settings.mount.up}), apk = peak |a| per 20 ms frame\n` +
+    `, IMU sensor axes (toe ${settings.mount.fwd}, up ${settings.mount.up}), apk = peak |a - g| per 20 ms frame (gravity removed, firmware v1.3+)\n` +
     `# cal ${cal.hyst ? "hysteresis, per channel aU/bU/aD/bD (loading / unloading F = a*G^b)" : "single curve, per channel a/b"}` +
     `, G uS = (mV/base-1)/RF*1e6. L: ${cc("L")}  R: ${cc("R")}`;
 }
@@ -1432,6 +1432,9 @@ function analyzeFoot(key, buf) {
       st.stride = next.ic - c.ic;
       st.swing = st.stride - st.stance;
       st.stancePct = st.stance / st.stride * 100;
+      const tt = [], fv = [];                     // vGRF over the gait cycle (heel strike -> next heel strike)
+      for (let i = c.s; i <= next.s; i++) { tt.push((t[i] - c.ic) / st.stride * 100); fv.push(Fs[i]); }
+      st.gcCurve = PCT.map(p => interp(tt, fv, p));
     }
     steps.push(st);
   });
@@ -1445,7 +1448,7 @@ function analyzeFoot(key, buf) {
 // 3. Zero-velocity update (ZUPT): acceleration rotated to the world frame, gravity removed and integrated to velocity; velocity is
 //    reset to 0 in every still (foot-flat) phase and the drift left at the end of each swing is removed linearly; then position.
 // 4. Per step: stride = horizontal displacement between the mid-points of consecutive foot-flat phases; foot angles are
-//    relative to that step's foot-flat orientation. Impact = peak |a| (200 Hz peak per frame) around initial contact.
+//    relative to that step's foot-flat orientation. Impact = peak |a − g| (200 Hz peak per frame, gravity removed in the firmware) around initial contact.
 function imuAnalyze(key, buf, contacts) {
   const { t, F } = buf, raw = buf.imu || [], n = t.length;
   const have = raw.filter(Boolean).length;
@@ -1566,8 +1569,9 @@ function imuAnalyze(key, buf, contacts) {
     o.swingW = wmax;
     const ang = Math.atan2(d[0] * fh[1] - d[1] * fh[0], d[0] * fh[0] + d[1] * fh[1]) * DEG;
     o.fpa = key === "L" ? ang : -ang;            // + = toe-out
-    const tt = [], pp = [], ee = [];                // foot pitch / eversion over the gait cycle (IC -> next IC)
-    for (let i = c.s; i <= nc.s; i++) { tt.push((t[i] - c.ic) / (nc.ic - c.ic) * 100); pp.push(pitch(i) - fp); ee.push(ever(i) - fe); }
+    const tt = [], pp = [], ee = [];                // foot pitch / eversion over the gait cycle (IC -> next IC), 0° at heel strike
+    const p0 = pitch(c.s), e0 = ever(c.s);
+    for (let i = c.s; i <= nc.s; i++) { tt.push((t[i] - c.ic) / (nc.ic - c.ic) * 100); pp.push(pitch(i) - p0); ee.push(ever(i) - e0); }
     o.pitchCurve = PCT.map(x => interp(tt, pp, x));
     o.everCurve = PCT.map(x => interp(tt, ee, x));
     return o;
@@ -1657,23 +1661,36 @@ function vgrfChart(steps, color) {
     <text x="10" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 10 ${(T + H - B) / 2})">vGRF N</text></svg>`;
 }
 
-function angleChart(curves, color, label, evTxt) {     // mean ± SD of per-stride angle curves, % gait cycle
-  const W = 340, H = 170, L = 42, R = 10, T = 12, B = 28;
-  const m = PCT.map(i => mean(curves.map(c => c[i]))), d = PCT.map(i => sdev(curves.map(c => c[i])));
-  const lim = niceMax(Math.max(10, ...m.map((v, i) => Math.abs(v) + d[i])));
-  const X = p => L + p / 100 * (W - L - R), Y = v => T + (lim - v) / (2 * lim) * (H - T - B);
-  const up = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] + d[i]).toFixed(1)}`);
-  const lo = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] - d[i]).toFixed(1)}`).reverse();
-  const line = PCT.map(i => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(m[i]).toFixed(1)}`).join("");
+// vGRF, foot pitch and eversion over one gait cycle (heel strike -> next heel strike), mean ± SD, stacked on one shared
+// x axis. Angles are relative to heel strike (0° at 0 %). FF / HO from % stance scaled to % gait cycle; TO = stance %.
+function gaitStack(steps, color) {
+  const gc = steps.filter(s => s.gcCurve), ang = steps.filter(s => s.pitchCurve && s.gcCurve);
+  const panels = [{ label: "vGRF N", curves: gc.map(s => s.gcCurve), pos: true }];
+  if (ang.length) panels.push({ label: "Pitch °", curves: ang.map(s => s.pitchCurve) }, { label: "Eversion °", curves: ang.map(s => s.everCurve) });
+  const W = 340, L = 46, R = 10, T = 14, PH = 88, GAP = 12, B = 30, bot = T + panels.length * (PH + GAP) - GAP, H = bot + B;
+  const X = p => L + p / 100 * (W - L - R);
   let g = "";
-  for (const v of [-lim, 0, lim]) g += `<line class="axis" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
-  for (const p of [0, 25, 50, 75, 100]) g += `<text x="${X(p)}" y="${H - B + 13}" text-anchor="middle">${p}</text>`;
-  if (Number.isFinite(evTxt)) g += `<line class="ev" x1="${X(evTxt)}" x2="${X(evTxt)}" y1="${T}" y2="${H - B}"/><text x="${X(evTxt) + 3}" y="${T + 9}">TO</text>`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label} over the gait cycle">
-    ${g}<polygon points="${up.join(" ")} ${lo.join(" ")}" fill="${color}" opacity=".18"/>
-    <path d="${line}" fill="none" stroke="${color}" stroke-width="2"/>
-    <text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">% gait cycle (heel strike → next heel strike)</text>
-    <text x="10" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 10 ${(T + H - B) / 2})">${label} °</text></svg>`;
+  panels.forEach((P, k) => {
+    const y0 = T + k * (PH + GAP);
+    const m = PCT.map(i => mean(P.curves.map(c => c[i]))), d = PCT.map(i => sdev(P.curves.map(c => c[i])) || 0);
+    const hi = niceMax(Math.max(P.pos ? 50 : 5, ...m.map((v, i) => Math.abs(v) + d[i]))), lo = P.pos ? 0 : -hi;
+    const Y = v => y0 + (hi - Math.max(lo, Math.min(hi, v))) / (hi - lo) * PH;
+    for (const v of P.pos ? [0, hi / 2, hi] : [lo, 0, hi])
+      g += `<line class="axis" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"${v === 0 && !P.pos ? ' stroke-dasharray="2 2"' : ""}/>` +
+        `<text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+    const up = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] + d[i]).toFixed(1)}`);
+    const dn = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] - d[i]).toFixed(1)}`).reverse();
+    g += `<polygon points="${up.join(" ")} ${dn.join(" ")}" fill="${color}" opacity=".18"/>` +
+      `<path d="${PCT.map(i => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(m[i]).toFixed(1)}`).join("")}" fill="none" stroke="${color}" stroke-width="2"/>` +
+      `<text x="10" y="${y0 + PH / 2}" text-anchor="middle" transform="rotate(-90 10 ${y0 + PH / 2})">${P.label}</text>`;
+  });
+  const sp = mean(finite(gc.map(s => s.stancePct)));
+  const ev = [["FF", mean(finite(gc.map(s => s.ffPct))) * sp / 100], ["HO", mean(finite(gc.map(s => s.hoPct))) * sp / 100], ["TO", sp]];
+  for (const [lab, p] of ev) if (Number.isFinite(p))
+    g += `<line class="ev" x1="${X(p)}" x2="${X(p)}" y1="${T - 4}" y2="${bot}"/><text x="${X(p) + 2}" y="${T - 5}">${lab}</text>`;
+  for (const p of [0, 25, 50, 75, 100]) g += `<text x="${X(p)}" y="${bot + 13}" text-anchor="middle">${p}</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="vGRF${ang.length ? ", foot pitch and eversion" : ""} over the gait cycle">
+    ${g}<text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">% gait cycle (heel strike → next heel strike)</text></svg>`;
 }
 
 function insoleResultSVG(key, peakN, peakKPa, copX, copY, color) {
@@ -1720,11 +1737,11 @@ function footHTML(key, f, S) {
     <td>${one(s.strikeAng, 1)}</td><td>${one(s.toAng, 1)}</td><td>${one(s.evPeak, 1)}</td><td>${one(s.fpa, 1)}</td></tr>`).join("");
   const kgN = Number.isFinite(S.mass) ? S.mass * G0 : NaN;
   const bwps = a => { a = finite(a); return Number.isFinite(kgN) && a.length ? ` (${(mean(a) / kgN).toFixed(1)} BW/s)` : ""; };
-  const im = f.imu, withP = st.filter(s => s.pitchCurve), cyc = finite(col("stancePct"));
+  const im = f.imu;
   const imuBlock = !im ? `<h4>IMU</h4><div class="empty">No IMU data in this recording (firmware v1.0, IMU not found, or FSR_Demo_N).</div>`
     : im.note ? `<h4>IMU</h4><div class="empty">${im.note}</div>` : `
     ${rows("Impact", [
-      ["Heel-strike shock, peak |a| (200 Hz, incl. 1 g)", fmt(col("shock"), 2) + " g"],
+      ["Heel-strike shock, peak |a − g| (200 Hz, gravity removed)", fmt(col("shock"), 2) + " g"],
       ["Impact force, vGRF peak 1" + (f.scale !== 1 ? " (BW-scaled)" : ""), fmt(col("p1")) + " N" + bw(col("p1"), S.mass)],
       ["Loading rate (heel strike → peak 1)", fmt(col("lr")) + " N/s" + bwps(col("lr"))],
     ])}
@@ -1741,13 +1758,11 @@ function footHTML(key, f, S) {
       ["Peak eversion in loading / excursion", `${fmt(col("evPeak"), 1)} / ${fmt(col("evExc"), 1)} °`],
       ["Foot progression angle (+ toe-out, − toe-in)", fmt(col("fpa"), 1) + " °"],
     ])}
-    ${withP.length ? `<div class="res-pair"><div>${angleChart(withP.map(s => s.pitchCurve), color, "Foot pitch", mean(cyc))}</div>
-      <div>${angleChart(withP.map(s => s.everCurve), color, "Eversion", mean(cyc))}</div></div>` : ""}
     <div class="res-note">IMU: ${im.stillRuns} foot-flat phases, gyro bias ${im.biasDps.map(v => v.toFixed(1)).join(" / ")} °/s (x/y/z, body axes).</div>`;
   return `<div class="res-foot">${head}
     <div class="res-note">${st.length} steps analysed${f.partial ? `, ${f.partial} partial / short contacts skipped` : ""}.</div>
     <div class="res-row">
-      <div>${vgrfChart(st, color)}</div>
+      <div>${st.some(s => s.gcCurve) ? gaitStack(st, color) : vgrfChart(st, color)}</div>
       <div>${insoleResultSVG(key, meanPeakN, meanKPa, copX, copY, color)}
         <div class="res-note" style="margin:4px 0 0">Mean peak pressure (kPa) and mean COP path (● heel strike → ○ toe-off)</div></div>
     </div>
