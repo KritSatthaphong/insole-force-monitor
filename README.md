@@ -68,3 +68,7 @@ Connect each foot with **Bluetooth**, press **● Record**, walk, press **■ St
   "% lost" from the packet counter, and the CSV has `dev_ms` (board time) plus BLE loss in its header line.
 - The screen is kept awake while a foot streams over BLE or a recording runs (phones stop Bluetooth in the background):
   keep the app in front.
+
+## UTM calibration test code
+
+Sensor calibration on the Shimadzu UTM: see [`utm-calibration/`](utm-calibration/) (simple hold version and full v3.0 run-recording version, PC logger, pairing tool, results).
