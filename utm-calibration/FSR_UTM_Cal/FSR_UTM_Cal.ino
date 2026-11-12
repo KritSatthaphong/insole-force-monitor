@@ -58,7 +58,9 @@ const uint32_t SERIAL_BAUD = 921600;   // ignored by native USB
 // ---------------- Front end ----------------
 // RF per channel in ohm. If you change a resistor (e.g. 27k on ch3, ch4, ch6, ch7 against
 // clipping), change it here BEFORE recording, measure it with a meter and write the measured value.
-const float RF_OHM[NCH] = {39000, 39000, 39000, 39000, 39000, 39000, 39000};
+// 2026-11-12: ch3, ch4, ch6, ch7 changed to 30k (they clipped below 1000 N at 39k); ch1, ch2, ch5 stay 39k.
+// Replace the nominal values with the values measured by a meter (e.g. 29870) for the best accuracy.
+const float RF_OHM[NCH] = {39000, 39000, 30000, 30000, 39000, 30000, 30000};
 // Provisional display only (live view, hold QC): loading curves aU, bU of insole-app DEFAULT_CAL.
 const float PROV_A[NCH] = {3.58966f, 3.98233f, 3.22000f, 2.72739f, 4.28822f, 2.80304f, 3.41093f};
 const float PROV_B[NCH] = {1.02654f, 1.01871f, 1.00616f, 1.02718f, 1.01217f, 1.03127f, 0.99299f};

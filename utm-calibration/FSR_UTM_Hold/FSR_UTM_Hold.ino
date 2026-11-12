@@ -43,7 +43,9 @@ const uint8_t NCH = 7;
 const uint8_t FSR_PINS[NCH] = {0, 1, 2, 3, 4, 5, 6};                 // ch1..ch7 = GPIO0..6
 const char *const SITE_OF_CH[NCH] = {"S1", "S4", "S6", "S11", "S13", "S10", "S14"};
 // RF per channel in ohm: MUST equal the fitted (measured) resistor of each channel
-const float RF_OHM[NCH] = {39000, 39000, 39000, 39000, 39000, 39000, 39000};
+// 2026-11-12: ch3, ch4, ch6, ch7 changed to 30k (they clipped below 1000 N at 39k); ch1, ch2, ch5 stay 39k.
+// Replace the nominal values with the values measured by a meter (e.g. 29870) for the best accuracy.
+const float RF_OHM[NCH] = {39000, 39000, 30000, 30000, 39000, 30000, 30000};
 // provisional display only: loading curves of insole-app DEFAULT_CAL
 const float PROV_A[NCH] = {3.58966f, 3.98233f, 3.22000f, 2.72739f, 4.28822f, 2.80304f, 3.41093f};
 const float PROV_B[NCH] = {1.02654f, 1.01871f, 1.00616f, 1.02718f, 1.01217f, 1.03127f, 0.99299f};
