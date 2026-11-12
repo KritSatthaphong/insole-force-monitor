@@ -1,0 +1,25 @@
+
+Validation of docs/examples/P00_R01  (recording P00_R01, data_source hardware, hardware=True)
+
+[A] PASS       three file types present with the same Recording ID                                                                  id=P00_R01, files=['P00_R01_events.csv', 'P00_R01_insole_L.csv', 'P00_R01_metadata.json']
+[A] PASS       events.csv header = event_type,dev_ms,host_utc_ms,sample_seq,details                                                 
+[A] PASS       all three file types are plain ASCII (safe to open on any locale)                                                    
+[A] PASS       RECORD_START and RECORD_STOP events present                                                                          9 events: {'ZERO': 1, 'MCU_OVERRUN': 1, 'PACKET_DROP': 2, 'RECORD_START': 1, 'PACKET_OUT_OF_ORDER': 1, 'PACKET_DUPLICATE': 1, 'RECORD_STOP': 1, 'STREAM_ERROR': 1}
+[A] PASS       [L] required columns                                                                                                 35 columns
+[A] PASS       [L] every row has the header's field count                                                                           
+[A] PASS       [L] foot column only L                                                                                               
+[A] PASS       [L] row count = metadata samples                                                                                     csv 1238 vs metadata 1238
+[A] PASS       [L] recording id P00_R01 in CSV comment                                                                              
+[B] PASS       [L] sequence: missing / duplicate / out-of-order match metadata                                                      csv 4/1/1 vs metadata 4/1/1
+[B] PASS       [L] PACKET_DROP events add up to the missing samples                                                                 events 4 vs seq gaps 4
+[B] PASS       [L] device timestamp monotonic (uint32 rollover handled); every backwards step is a duplicate / out-of-order sample  1 backwards steps, 2 duplicate/out-of-order samples; stream crossed the micros() wrap
+[B] PASS       [L] median sample interval = 1/nominal rate                                                                          median 5.000 ms (nominal 5.000 ms), jitter sd 0.251 ms, max 10.076 ms, longest gap 20.1 ms
+[B] PASS       [L] recording duration: device clock vs t_ms                                                                         device 6.195 s, t_ms 6.195 s
+[B] PASS       [L] dev_us = dev_ms x 1000                                                                                           
+[C] PASS       [L] Fz_N = sum of the 7 S*_N                                                                                         max |diff| 0.0020 N over 1238 rows (tolerance 0.005 N = 3-decimal rounding)
+[D] PASS       [L] COP blank exactly when Fz_N <= 10 N (never 0,0)                                                                  519 loaded rows, 719 blank rows
+[D] PASS       [L] COP recomputed from S*_N and sensor positions                                                                    max |diff| 0.0013 mm (tolerance 0.06 mm)
+[D] PASS       [L] transform to the CAD frame: COP inside the outline box, sensor positions consistent                              
+[E] PASS       [L] S*_N rebuilt from raw mV with the metadata calibration (linear)                                                  max |diff| 0.00050 N on 1107 rows; rows after the first config-change event excluded (1 such events)
+
+20 PASS, 0 FAIL, 0 NOT TESTED

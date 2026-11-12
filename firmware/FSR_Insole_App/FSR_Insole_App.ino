@@ -1,21 +1,34 @@
-// FSR_Insole_App.ino  v1.3  (2026-10-29)
+// FSR_Insole_App.ino  v1.4  (2026-11-12)  research build: 200 Hz, sample counter + acquisition timestamp
 // Smart Insole -> Insole Force Monitor web app.
-// Streams raw mV of 7 FlexiForce A401 channels + BMI270 IMU at 50 Hz over BOTH:
-//   - USB serial (115200):  "D,<ms>,<mV1>,...,<mV7>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<apk>"   + "#FOOT,L" every 2 s
-//       ax..az = mean accel of the frame (mg), gx..gz = mean gyro (0.1 deg/s),
-//       apk = peak |a - g| in the frame (mg): dynamic acceleration, gravity removed
-//       (no IMU found -> the line stops after mV7, like v1.0)
-//   - BLE (Nordic UART service):
-//       TX  6E400003: 16-byte notify = uint16 seq + 7 x uint16 mV (little-endian), unchanged from v1.0
-//       IMU 6E400004: 16-byte notify = uint16 seq + 7 x int16 (ax, ay, az, gx, gy, gz, apk; units as above),
-//                     sent just before the TX packet with the same seq
-// The app converts mV -> N with the per-channel calibration (RF 39k), so no cal lives here.
+// Streams raw mV of 7 FlexiForce A401 channels + BMI270 IMU at 200 Hz over BOTH:
+//   - USB serial (921600 baud on a CH343/UART port; native USB ignores the baud rate):
+//       "D,<ms>,<mV1>..<mV7>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<apk>,<seq>,<us>"   + "#FOOT,L" and "#TIMING,..." every 2 s
+//       ms  = millis() when the frame was finished (as in v1.0 - v1.3)
+//       ax..az = mean accel of the frame (mg), gx..gz = mean gyro (0.1 deg/s), apk = peak |a - g| in the frame (mg)
+//       seq = sample counter, uint32, +1 per acquisition cycle (first sample after boot = 0)
+//       us  = micros() taken just BEFORE the 7-channel ADC burst of that cycle (acquisition start, uint32, wraps every 71.6 min;
+//             the app unwraps it). The 7 channels are read one after the other during the following adc_us (see #TIMING).
+//       Lines without IMU: "D,<ms>,<mV1>..<mV7>,<seq>,<us>". v1.0-v1.3 lines (without seq,us) are still understood by the app.
+//   - BLE (Nordic UART service 6E400001...): NEW packet "v2", batched (4 samples per notification, 50 notifications/s):
+//       characteristic 6E400005 (notify), little-endian:
+//         byte 0   = 2     packet version
+//         byte 1   = n     number of samples in this notification (normally 4)
+//         byte 2   = 14    firmware version (major*10 + minor -> 1.4)
+//         byte 3   = flags bit0 = IMU present (otherwise the 7 IMU values are 0)
+//         n x 36-byte sample: uint32 seq, uint32 us (same meaning as above), 7 x uint16 mV, 7 x int16 IMU (ax,ay,az,gx,gy,gz,apk)
+//       The v1.0-v1.3 characteristics (6E400003 / 6E400004, 50 Hz, 16 bytes) are no longer created: 400 notifications per second
+//       would exceed what phones and browsers can take. The app still reads v1 from older firmware.
+//       Needs an ATT MTU >= 151 (Chrome / Android negotiate 247+; the app reports a short packet if not). Use USB if in doubt.
+// The app converts mV -> N with the per-channel calibration, so no calibration lives here.
+//
+// 200 Hz = one frame every 5000 us. The ADC burst is unchanged from v1.3 (8 reads averaged per channel). Whether it fits in
+// 5 ms on your board is reported by the "#TIMING" line (adc_us_max, frame_us_max, late, over): check it in a 30 s test before the lab.
+// If late/over keep counting up, lower OVERSAMPLE (e.g. 4) and re-flash; the app records the oversample value in the metadata.
 //
 // IMU: SparkFun BMI270 (Qwiic) at 0x68, SDA GPIO23, SCL GPIO22, 400 kHz. Accel +-16 g, gyro +-2000 deg/s, ODR 200 Hz.
-// It is read at 200 Hz; each 20 ms frame sends the mean of its ~4 readings (for orientation / stride integration)
-// plus the peak dynamic |a - g| (the heel-strike shock, which a 50 Hz average would smear). Gravity g is tracked in sensor
-// axes: rotated with the gyro every reading and pulled towards the accelerometer while |a| is close to 1 g (foot still).
-// The mean accel values still include gravity (the app needs it for foot orientation).
+// It is read at 200 Hz (about one reading per frame, the frame sends the mean of the readings since the last frame) plus the peak
+// dynamic |a - g| (heel-strike shock). Gravity g is tracked in sensor axes: rotated with the gyro every reading and pulled
+// towards the accelerometer while |a| is close to 1 g (foot still). The mean accel values still include gravity.
 // Mounting on the insole: sensor +Y points down (ay = -1 g standing), +X points to the heel.
 // Gyro zero offset (GYRO_BIAS, deg/s) is subtracted from every reading: mean of 3 x 10 s still measurements of this
 // BMI270 (rounds 4-6: gx +0.034/+0.033/+0.024, gy -1.179/-1.173/-1.173, gz +0.179/+0.181/+0.180 dps; sd ~0.12 dps).
@@ -26,7 +39,7 @@
 // Channel -> insole site (heel to toe): ch1 S1, ch2 S4, ch3 S6, ch4 S11, ch5 S13, ch6 S10, ch7 S14.
 //
 // Commands (USB serial or BLE write):
-//   ?    info line (includes IMU status and |a| at rest: should be ~1.00 g when the board lies still)
+//   ?    info line (IMU status, |a| at rest: should be ~1.00 g when the board lies still) + timing line
 //   fL   set this board to LEFT  foot (saved in flash, board restarts, BLE name "Insole-L")
 //   fR   set this board to RIGHT foot (saved in flash, board restarts, BLE name "Insole-R")
 // Flash the same sketch on both boards, then send fL to one and fR to the other.
@@ -42,21 +55,25 @@
 #include <BLE2902.h>
 #endif
 
-#define FW_VERSION   "1.3"
+#define FW_VERSION   "1.4"
+#define FW_BYTE      14                                        // major * 10 + minor, sent in the BLE v2 header
 #define NUS_SERVICE  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define NUS_RX       "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"   // app -> board (write)
-#define NUS_TX       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"   // board -> app (notify, FSR)
-#define NUS_IMU      "6E400004-B5A3-F393-E0A9-E50E24DCCA9E"   // board -> app (notify, IMU)
+#define NUS_FSR2     "6E400005-B5A3-F393-E0A9-E50E24DCCA9E"   // board -> app (notify, batched v2: FSR + IMU + seq + us)
 
 const uint8_t  N_CH            = 7;
 const uint8_t  FSR_PIN[N_CH]   = {0, 1, 2, 3, 4, 5, 6};   // S1..S7 = GPIO0..6 (ADC1)
-const uint16_t SAMPLE_HZ       = 50;
-const uint8_t  OVERSAMPLE      = 8;                        // ADC reads averaged per channel
+const uint16_t SAMPLE_HZ       = 200;
+const uint32_t FRAME_US        = 1000000UL / SAMPLE_HZ;    // 5000 us
+const uint8_t  OVERSAMPLE      = 8;                        // ADC reads averaged per channel (unchanged since v1.0)
 const uint32_t FOOT_PERIOD_MS  = 2000;
 const uint8_t  IMU_SDA         = 23;
 const uint8_t  IMU_SCL         = 22;
 const uint16_t IMU_HZ          = 200;
 const float    GYRO_BIAS[3]    = {0.030f, -1.175f, 0.180f};   // deg/s, subtracted from gx, gy, gz
+const uint8_t  BATCH_N         = 4;                        // samples per BLE notification
+const uint8_t  REC_BYTES       = 36;                       // seq 4 + us 4 + 7 x mV 14 + 7 x imu 14
+const uint16_t BLE_MIN_MTU     = 4 + BATCH_N * REC_BYTES + 3;   // 151
 
 // IMU frame accumulator (declared before the functions that use it)
 struct ImuFrame {
@@ -65,30 +82,56 @@ struct ImuFrame {
   uint8_t n;
 };
 
+// One acquisition cycle, kept until the BLE batch is full
+struct Sample {
+  uint32_t seq, us;
+  uint16_t mv[N_CH];
+  int16_t imu[7];
+};
+
+// Timing diagnostics (cumulative since boot), printed in "#TIMING"
+struct Diag {
+  uint32_t frames, late, over, resync;       // late: frame started > 1 ms after its schedule; over: frame work took > 5 ms; resync: fell > 25 ms behind
+  uint32_t adcMax, frameMax, lateMax;        // us
+  uint64_t adcSum;
+} diag = {};
+
 Preferences prefs;
 char foot = 'L';
 BLEServer* server = nullptr;
-BLECharacteristic* txChar = nullptr;
-BLECharacteristic* imuChar = nullptr;
+BLECharacteristic* fsrChar = nullptr;
 volatile bool bleConnected = false;
 volatile bool restartAdv = false;
-uint16_t seq = 0;
+uint32_t seq = 0;                 // sample counter: +1 per acquisition cycle
 uint16_t mv[N_CH];
 String serialBuf;
+Sample batch[BATCH_N];
+uint8_t nBatch = 0;
+uint16_t peerMtu = 0;             // 0 = not checked yet in this connection
+uint32_t bleSince = 0;
 
 BMI270 imu;
 bool imuOk = false;
 float imuRestG = 0;               // |a| averaged at boot (should be ~1.00 g)
 float grav[3] = {0, -1, 0};       // gravity estimate in sensor axes (g); +Y points down on the insole
-const float GRAV_K = 0.02f;       // pull towards the accelerometer per reading while still (tau ~0.25 s at 200 Hz)
+const float GRAV_K = 0.02f;       // pull towards the accelerometer per reading while still
 ImuFrame acc = {};
 int16_t imuOut[7] = {0, -1000, 0, 0, 0, 0, 0};     // last frame sent: mg, 0.1 deg/s, mg (insole flat: ay = -1 g)
 
+void printTiming() {
+  Serial.printf("#TIMING,hz=%u,oversample=%u,frames=%lu,adc_us_avg=%lu,adc_us_max=%lu,frame_us_max=%lu,late=%lu,late_us_max=%lu,over=%lu,resync=%lu,ble_mtu=%u\n",
+                SAMPLE_HZ, OVERSAMPLE, (unsigned long)diag.frames,
+                (unsigned long)(diag.frames ? diag.adcSum / diag.frames : 0), (unsigned long)diag.adcMax, (unsigned long)diag.frameMax,
+                (unsigned long)diag.late, (unsigned long)diag.lateMax, (unsigned long)diag.over, (unsigned long)diag.resync, peerMtu);
+}
+
 void printInfo() {
   Serial.printf("#FOOT,%c\n", foot);
-  Serial.printf("#INFO,FSR_Insole_App v%s,ch=%u,hz=%u,ble=Insole-%c,%s,imu=%s,|a|=%.2fg,gyro_bias=%.3f/%.3f/%.3f dps\n",
+  Serial.printf("#INFO,FSR_Insole_App v%s,ch=%u,hz=%u,ble=Insole-%c,%s,imu=%s,|a|=%.2fg,gyro_bias=%.3f/%.3f/%.3f dps,oversample=%u,ts=micros_before_adc_burst,mac=%012llX,build=%s %s\n",
                 FW_VERSION, N_CH, SAMPLE_HZ, foot, bleConnected ? "ble_connected" : "ble_idle",
-                imuOk ? "BMI270" : "none", imuRestG, GYRO_BIAS[0], GYRO_BIAS[1], GYRO_BIAS[2]);
+                imuOk ? "BMI270" : "none", imuRestG, GYRO_BIAS[0], GYRO_BIAS[1], GYRO_BIAS[2], OVERSAMPLE,
+                (unsigned long long)ESP.getEfuseMac(), __DATE__, __TIME__);
+  printTiming();
 }
 
 void handleCommand(String c) {
@@ -107,8 +150,8 @@ void handleCommand(String c) {
 }
 
 class ServerCB : public BLEServerCallbacks {
-  void onConnect(BLEServer* s) { bleConnected = true; }
-  void onDisconnect(BLEServer* s) { bleConnected = false; restartAdv = true; }
+  void onConnect(BLEServer* s) { bleConnected = true; nBatch = 0; peerMtu = 0; bleSince = millis(); }
+  void onDisconnect(BLEServer* s) { bleConnected = false; restartAdv = true; nBatch = 0; }
 };
 
 class RxCB : public BLECharacteristicCallbacks {
@@ -119,14 +162,13 @@ void setupBLE() {
   char name[12];
   snprintf(name, sizeof(name), "Insole-%c", foot);
   BLEDevice::init(name);
+  BLEDevice::setMTU(247);                                   // batched packets are 148 bytes
   server = BLEDevice::createServer();
   server->setCallbacks(new ServerCB());
   BLEService* svc = server->createService(NUS_SERVICE);
-  txChar = svc->createCharacteristic(NUS_TX, BLECharacteristic::PROPERTY_NOTIFY);
-  imuChar = svc->createCharacteristic(NUS_IMU, BLECharacteristic::PROPERTY_NOTIFY);
+  fsrChar = svc->createCharacteristic(NUS_FSR2, BLECharacteristic::PROPERTY_NOTIFY);
 #if defined(CONFIG_BLUEDROID_ENABLED)
-  txChar->addDescriptor(new BLE2902());
-  imuChar->addDescriptor(new BLE2902());
+  fsrChar->addDescriptor(new BLE2902());
 #endif
   BLECharacteristic* rx = svc->createCharacteristic(
       NUS_RX, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
@@ -241,8 +283,31 @@ void readChannels() {
   }
 }
 
+static inline void put32(uint8_t* p, uint32_t v) { p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24; }
+static inline void put16(uint8_t* p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
+
+// BLE v2: send the collected samples in one notification
+void sendBatch() {
+  uint8_t pkt[4 + BATCH_N * REC_BYTES];
+  pkt[0] = 2; pkt[1] = nBatch; pkt[2] = FW_BYTE; pkt[3] = imuOk ? 1 : 0;
+  uint8_t* p = pkt + 4;
+  for (uint8_t s = 0; s < nBatch; s++, p += REC_BYTES) {
+    put32(p, batch[s].seq); put32(p + 4, batch[s].us);
+    for (uint8_t i = 0; i < N_CH; i++) put16(p + 8 + 2 * i, batch[s].mv[i]);
+    for (uint8_t i = 0; i < 7; i++) put16(p + 22 + 2 * i, (uint16_t)batch[s].imu[i]);
+  }
+  fsrChar->setValue(pkt, 4 + nBatch * REC_BYTES);
+  fsrChar->notify();
+  nBatch = 0;
+}
+
 void setup() {
-  Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+  Serial.setTxBufferSize(8192);        // native USB: ride out short host stalls without losing lines (must be set before begin)
+#else
+  Serial.setTxBufferSize(2048);
+#endif
+  Serial.begin(921600);                // UART/CH343 port: 200 Hz lines need more than 115200; native USB ignores the baud rate
 #if ARDUINO_USB_CDC_ON_BOOT
   Serial.setTxTimeoutMs(0);            // native USB: never block when no PC is listening
 #endif
@@ -273,40 +338,48 @@ void loop() {
 
   pollIMU();
 
-  if ((int32_t)(micros() - nextUs) < 0) return;
-  nextUs += 1000000UL / SAMPLE_HZ;
-  if ((int32_t)(micros() - nextUs) > 5 * (int32_t)(1000000UL / SAMPLE_HZ)) nextUs = micros();  // fell behind: resync
+  uint32_t startUs = micros();
+  int32_t lateUs = (int32_t)(startUs - nextUs);
+  if (lateUs < 0) return;
+  nextUs += FRAME_US;
+  if ((int32_t)(micros() - nextUs) > 5 * (int32_t)FRAME_US) { nextUs = micros(); diag.resync++; }  // fell behind: resync (seq keeps counting, us shows the gap)
+  if (lateUs > 1000) { diag.late++; if ((uint32_t)lateUs > diag.lateMax) diag.lateMax = lateUs; }
 
+  uint32_t t0 = micros();              // acquisition timestamp: just before the ADC burst
   readChannels();
+  uint32_t adcUs = micros() - t0;
   if (imuOk) closeImuFrame();
   uint32_t ms = millis();
 
   if (imuOk) {
-    Serial.printf("D,%lu,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%d\n", (unsigned long)ms,
+    Serial.printf("D,%lu,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%d,%lu,%lu\n", (unsigned long)ms,
                   mv[0], mv[1], mv[2], mv[3], mv[4], mv[5], mv[6],
-                  imuOut[0], imuOut[1], imuOut[2], imuOut[3], imuOut[4], imuOut[5], imuOut[6]);
+                  imuOut[0], imuOut[1], imuOut[2], imuOut[3], imuOut[4], imuOut[5], imuOut[6],
+                  (unsigned long)seq, (unsigned long)t0);
   } else {
-    Serial.printf("D,%lu,%u,%u,%u,%u,%u,%u,%u\n", (unsigned long)ms,
-                  mv[0], mv[1], mv[2], mv[3], mv[4], mv[5], mv[6]);
+    Serial.printf("D,%lu,%u,%u,%u,%u,%u,%u,%u,%lu,%lu\n", (unsigned long)ms,
+                  mv[0], mv[1], mv[2], mv[3], mv[4], mv[5], mv[6], (unsigned long)seq, (unsigned long)t0);
   }
-  if (ms - lastFoot >= FOOT_PERIOD_MS) { lastFoot = ms; Serial.printf("#FOOT,%c\n", foot); }
+  if (ms - lastFoot >= FOOT_PERIOD_MS) { lastFoot = ms; Serial.printf("#FOOT,%c\n", foot); printTiming(); }
 
-  if (bleConnected && txChar) {
-    if (imuOk && imuChar) {            // IMU first, so the app has it when the FSR packet with the same seq arrives
-      uint8_t ip[2 + 2 * 7];
-      ip[0] = seq & 0xFF; ip[1] = seq >> 8;
-      for (uint8_t i = 0; i < 7; i++) {
-        uint16_t u = (uint16_t)imuOut[i];
-        ip[2 + 2 * i] = u & 0xFF; ip[3 + 2 * i] = u >> 8;
-      }
-      imuChar->setValue(ip, sizeof(ip));
-      imuChar->notify();
+  if (bleConnected && fsrChar) {
+    Sample& s = batch[nBatch++];
+    s.seq = seq; s.us = t0;
+    for (uint8_t i = 0; i < N_CH; i++) s.mv[i] = mv[i];
+    for (uint8_t i = 0; i < 7; i++) s.imu[i] = imuOk ? imuOut[i] : 0;
+#if defined(CONFIG_BLUEDROID_ENABLED)
+    if (!peerMtu && millis() - bleSince > 1500) {            // MTU is negotiated just after connecting
+      peerMtu = server->getPeerMTU(server->getConnId());
+      if (peerMtu && peerMtu < BLE_MIN_MTU) Serial.printf("#WARN,BLE MTU %u is below %u: 200 Hz packets will be cut, use USB\n", peerMtu, BLE_MIN_MTU);
     }
-    uint8_t pkt[2 + 2 * N_CH];
-    pkt[0] = seq & 0xFF; pkt[1] = seq >> 8;
-    for (uint8_t i = 0; i < N_CH; i++) { pkt[2 + 2 * i] = mv[i] & 0xFF; pkt[3 + 2 * i] = mv[i] >> 8; }
-    txChar->setValue(pkt, sizeof(pkt));
-    txChar->notify();
+#endif
+    if (nBatch >= BATCH_N) sendBatch();
   }
   seq++;
+
+  uint32_t used = micros() - t0;       // acquisition + output of this frame
+  diag.frames++; diag.adcSum += adcUs;
+  if (adcUs > diag.adcMax) diag.adcMax = adcUs;
+  if (used > diag.frameMax) diag.frameMax = used;
+  if (used > FRAME_US) diag.over++;
 }

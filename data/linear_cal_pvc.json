@@ -1,0 +1,183 @@
+{
+  "source": "Final Test Results.xlsx",
+  "sheet": "PVC",
+  "model": "N = max(0, m*(mV - baseline))",
+  "applied_fit": "full",
+  "sensors": [
+    {
+      "zero_mV": 301.27,
+      "n_points": 22,
+      "n_saturated_dropped": 0,
+      "full": {
+        "m_N_per_mV": 0.4409,
+        "rmse_N": 30.2,
+        "max_abs_err_N": 58.1,
+        "n": 22,
+        "free_fit_m": 0.42069,
+        "free_fit_c_N": -94.3,
+        "free_fit_rmse_N": 24.1
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.50856,
+        "rmse_N": 23.6,
+        "max_abs_err_N": 36.6,
+        "n": 8,
+        "free_fit_m": 0.47404,
+        "free_fit_c_N": -126.7,
+        "free_fit_rmse_N": 21.3
+      },
+      "channel": 1,
+      "sensor_id": "S1"
+    },
+    {
+      "zero_mV": 305.78,
+      "n_points": 22,
+      "n_saturated_dropped": 0,
+      "full": {
+        "m_N_per_mV": 0.40356,
+        "rmse_N": 14.9,
+        "max_abs_err_N": 28.6,
+        "n": 22,
+        "free_fit_m": 0.39418,
+        "free_fit_c_N": -104.3,
+        "free_fit_rmse_N": 12.0
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.43398,
+        "rmse_N": 12.4,
+        "max_abs_err_N": 20.0,
+        "n": 8,
+        "free_fit_m": 0.41366,
+        "free_fit_c_N": -115.4,
+        "free_fit_rmse_N": 10.2
+      },
+      "channel": 2,
+      "sensor_id": "S4"
+    },
+    {
+      "zero_mV": 299.67,
+      "n_points": 23,
+      "n_saturated_dropped": 2,
+      "full": {
+        "m_N_per_mV": 0.34173,
+        "rmse_N": 13.2,
+        "max_abs_err_N": 28.4,
+        "n": 21,
+        "free_fit_m": 0.33579,
+        "free_fit_c_N": -88.3,
+        "free_fit_rmse_N": 11.6
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.35349,
+        "rmse_N": 4.3,
+        "max_abs_err_N": 8.3,
+        "n": 6,
+        "free_fit_m": 0.34822,
+        "free_fit_c_N": -101.9,
+        "free_fit_rmse_N": 4.0
+      },
+      "channel": 3,
+      "sensor_id": "S6"
+    },
+    {
+      "zero_mV": 300.02,
+      "n_points": 22,
+      "n_saturated_dropped": 0,
+      "full": {
+        "m_N_per_mV": 0.35289,
+        "rmse_N": 26.9,
+        "max_abs_err_N": 49.9,
+        "n": 22,
+        "free_fit_m": 0.33625,
+        "free_fit_c_N": -67.5,
+        "free_fit_rmse_N": 19.4
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.41767,
+        "rmse_N": 11.8,
+        "max_abs_err_N": 19.1,
+        "n": 8,
+        "free_fit_m": 0.39824,
+        "free_fit_c_N": -108.4,
+        "free_fit_rmse_N": 9.5
+      },
+      "channel": 4,
+      "sensor_id": "S11"
+    },
+    {
+      "zero_mV": 298.55,
+      "n_points": 22,
+      "n_saturated_dropped": 0,
+      "full": {
+        "m_N_per_mV": 0.3729,
+        "rmse_N": 37.9,
+        "max_abs_err_N": 67.0,
+        "n": 22,
+        "free_fit_m": 0.34671,
+        "free_fit_c_N": -51.2,
+        "free_fit_rmse_N": 24.3
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.48956,
+        "rmse_N": 11.8,
+        "max_abs_err_N": 18.5,
+        "n": 7,
+        "free_fit_m": 0.4709,
+        "free_fit_c_N": -131.3,
+        "free_fit_rmse_N": 10.1
+      },
+      "channel": 5,
+      "sensor_id": "S13"
+    },
+    {
+      "zero_mV": 299.31,
+      "n_points": 22,
+      "n_saturated_dropped": 0,
+      "full": {
+        "m_N_per_mV": 0.38168,
+        "rmse_N": 17.4,
+        "max_abs_err_N": 33.0,
+        "n": 22,
+        "free_fit_m": 0.37069,
+        "free_fit_c_N": -90.8,
+        "free_fit_rmse_N": 13.5
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.41935,
+        "rmse_N": 12.1,
+        "max_abs_err_N": 20.6,
+        "n": 8,
+        "free_fit_m": 0.4041,
+        "free_fit_c_N": -112.4,
+        "free_fit_rmse_N": 10.8
+      },
+      "channel": 6,
+      "sensor_id": "S10"
+    },
+    {
+      "zero_mV": 302.33,
+      "n_points": 20,
+      "n_saturated_dropped": 0,
+      "full": {
+        "m_N_per_mV": 0.42355,
+        "rmse_N": 37.1,
+        "max_abs_err_N": 67.5,
+        "n": 20,
+        "free_fit_m": 0.39172,
+        "free_fit_c_N": -68.4,
+        "free_fit_rmse_N": 22.5
+      },
+      "0_300N": {
+        "m_N_per_mV": 0.53156,
+        "rmse_N": 20.2,
+        "max_abs_err_N": 38.5,
+        "n": 8,
+        "free_fit_m": 0.48919,
+        "free_fit_c_N": -128.8,
+        "free_fit_rmse_N": 16.1
+      },
+      "channel": 7,
+      "sensor_id": "S14"
+    }
+  ]
+}

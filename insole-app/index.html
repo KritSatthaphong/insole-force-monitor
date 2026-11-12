@@ -79,6 +79,7 @@ svg .sensor { stroke: var(--outline); stroke-width: .5; }
 svg .lbl { font-size: 5.2px; font-weight: 600; text-anchor: middle; pointer-events: none; }
 svg .val { font-size: 6.2px; font-weight: 700; text-anchor: middle; pointer-events: none; font-variant-numeric: tabular-nums; }
 svg .cop { fill: none; stroke: var(--text); stroke-width: .9; }
+svg .axisline { stroke: var(--muted); stroke-width: .5; stroke-dasharray: 3 3; opacity: .45; fill: none; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; margin-bottom: 8px; }
 .stat { background: var(--surface-2); border-radius: 8px; padding: 6px 8px; min-width: 0; }
 .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
@@ -103,6 +104,8 @@ dialog#calDlg { max-width: min(860px, calc(100vw - 32px)); }
   background: var(--surface-2); color: var(--text); text-align: right; }
 .calgrid th.grp { text-align: center; border-bottom: 0; padding-bottom: 0; }
 .calgrid.hyst-on td.single input, .calgrid.hyst-off td.hyst input { opacity: .45; }
+.calgrid.lin-on td.hyst input, .calgrid.lin-on td.single input { opacity: .3; }
+.calgrid.lin-off td.lin input, .calgrid.lin-off th.lin { opacity: .3; }
 .chk { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 6px 0; }
 .calimport { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; margin: 8px 0 2px; }
 .calimport select, .calimport input { font: inherit; max-width: 100%; }
@@ -173,9 +176,17 @@ button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-
   </div>
   <div class="group">
     <button id="recBtn" class="rec" aria-pressed="false">● Record</button>
+    <label class="note" title="On Stop, also download the research export (ZIP: P01_R01/ with insole CSV per foot, metadata.json, events.csv)"><input type="checkbox" id="recZip" checked> + ZIP</label>
+    <label class="note" title="On Stop, also download the raw recording as an XML file (the CSV is always saved)"><input type="checkbox" id="recXml"> + XML</label>
     <button id="logBtn" title="Recordings saved in this browser: download, share or delete">Logs</button>
     <button id="calBtn">Calibration</button>
     <span class="note" id="recInfo"></span>
+  </div>
+  <div class="group trial" title="Recording ID = Participant_Run, written to the research export (file names and metadata.json). The Run number counts up after every Stop. Mass (right) is also written to the metadata.">
+    <label>Participant <input id="inPid" type="text" value="P01" size="5" maxlength="16"></label>
+    <label>Run <input id="inRun" type="text" value="R01" size="5" maxlength="16"></label>
+    <label>Condition <input id="inCond" type="text" size="9" maxlength="40" placeholder="—"></label>
+    <label>Speed km/h <input id="inSpeed" type="number" min="0" step="0.1" placeholder="—"></label>
   </div>
   <div class="group trial" title="Used for the results after recording">
     <label>Distance m <input id="inDist" type="number" min="0" step="0.1" placeholder="—"></label>
@@ -200,12 +211,15 @@ button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-
   USB needs Chrome or Edge on a computer. BLE needs Chrome (desktop or Android) or the Bluefy browser on iPhone.
   The page must be opened from <code>http://localhost</code> or an <code>https://</code> address.
   Zero each foot with no load before testing. Readings ≥ 3250 mV are saturated (marked SAT); the force shown is then a lower bound.
+  <br><b id="appVer"></b> · firmware 1.4 expected for 200 Hz (older firmware still works at 50 Hz) · research export: see docs/RESEARCH_EXPORT.md
 </footer>
 
 <dialog id="logDlg">
   <h3>Logs</h3>
   <p>Every recording is saved in this browser as it runs (about once a second), so a closed tab, a crash or a lost Bluetooth link keeps
-  everything up to that moment ("recovered"). Download saves the CSV to this computer or phone; Share sends it to Files / Drive / e-mail on a phone.
+  everything up to that moment ("recovered"). Download saves the CSV to this computer or phone; <b>ZIP</b> is the research export (folder with the insole CSV per foot, metadata.json and
+  events.csv; "3 files" saves the same files separately); XML saves the same raw samples as an XML file
+  (larger, about 4 times the CSV size); Share sends the CSV to Files / Drive / e-mail on a phone.
   Clearing the browser's site data removes these logs, so download the ones you need.</p>
   <div id="logList"></div>
   <div class="dlg-actions"><button id="logClose" class="primary">Close</button></div>
@@ -229,10 +243,16 @@ button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-
 </dialog>
 
 <dialog id="calDlg">
-  <h3>Calibration: F = a · G<sup>b</sup> per sensor</h3>
-  <p>G (µS) = (mV / base − 1) / RF × 10⁶, RF = 39 kΩ. Defaults are fitted from <i>S1-S7test results.xlsx</i> (UTM rigid plate, 0 → 1000 → 0 N,
-  saturated points and missing readings excluded), one sensor per channel. The right foot uses the same values until its own sensors are calibrated.
-  "Base" is the zero-load mV now in use (set by Zero; the test's base until then).</p>
+  <h3>Calibration per sensor</h3>
+  <label class="chk">Model
+    <select id="calModel"><option value="linear">Linear: N = m · (mV − base)  (default, PVC test on the insole)</option>
+      <option value="curve">Curve: F = a · G^b with optional hysteresis  (previous model, rigid-plate UTM test)</option></select></label>
+  <p><b>Linear:</b> m (N per mV) fitted per sensor from <i>Final Test Results.xlsx</i>, sheet PVC (loaded directly on the insole, both runs pooled,
+  saturated points excluded, line through the zero-load mV; <code>tools/cal_linear_from_xlsx.py</code>). 0 N below base + 4 mV. The line is only as good as the
+  data: errors of 13–38 N RMS over 0–1000 N, larger at low loads. Raw mV is always logged so the calibration can be refitted offline.<br>
+  <b>Curve:</b> G (µS) = (mV / base − 1) / RF × 10⁶, RF = 39 kΩ; fitted from <i>S1-S7test results.xlsx</i> (UTM rigid plate, 0 → 1000 → 0 N,
+  saturated points and missing readings excluded). The right foot uses the same values until its own sensors are calibrated.
+  "Base" is the zero-load mV now in use (set by Zero; the test's base until then). The calibration check further down evaluates the curve model.</p>
   <label class="chk"><input type="checkbox" id="calHyst"> Hysteresis compensation: loading curve while the force rises, unloading curve as it falls
     (UTM error over 0–300 N: 2–8 N per sensor instead of 1–15 N with one curve)</label>
   <div class="calimport">
@@ -278,6 +298,14 @@ button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-
 // ---------- constants ----------
 const RF = 39000;            // feedback resistor (ohm)
 const SAT_MV = 3250;         // ADC saturation flag
+// Research export (2026-11-12): versions written into every metadata.json
+const APP_VERSION = "1.5.0-research", EXPORT_VERSION = "1.0", SCHEMA_VERSION = "1.0";
+const SOURCE_REV = "github.com/KritSatthaphong/insole-force-monitor, git tag v1.5.0-research";
+// Linear calibration N = m·(mV − baseline), m in N per mV, one per channel (S1, S4, S6, S11, S13, S10, S14).
+// Fitted by tools/cal_linear_from_xlsx.py from 'Final Test Results.xlsx', sheet PVC (test directly on the insole, both runs pooled,
+// saturated points dropped, line forced through the zero-load mV). See data/linear_cal_pvc.json.
+const LIN_M = [0.44090, 0.40356, 0.34173, 0.35289, 0.37290, 0.38168, 0.42355];
+document.getElementById("appVer").textContent = "App " + APP_VERSION;
 const FS_N = 1000;           // color scale full scale
 const MV_MIN = 300, MV_MAX = 3300;
 const DEAD_MV = 4;           // below base + this -> 0 N
@@ -290,6 +318,7 @@ const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_IMU = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";   // IMU notify, firmware v1.1+
+const NUS_FSR2 = "6e400005-b5a3-f393-e0a9-e50e24dcca9e";  // batched FSR + IMU + seq + us notify (packet v2), firmware v1.4+
 const G0 = 9.80665, DEG = 180 / Math.PI;
 // IMU analysis: a sample is "still" (zero velocity) when the foot is loaded (vGRF > GAIT.ON), |ω| < STILL_W °/s and
 // ||a| − 1 g| < STILL_A; runs shorter than MIN_STILL samples are ignored. KP = tilt-correction gain (rad/s per unit error)
@@ -311,6 +340,9 @@ const SITES = [
   { id: "S14", ch: 7, L: [66.0, 247.0], R: [24.7, 247.0] },
 ];
 const OUTLINE_W = 90.73, OUTLINE_L = 272.01;
+// COP is reported with the origin at the middle of the insole outline box: X = x − W/2 (transverse, + to the right of the
+// drawing for both feet), Y = y − L/2 (+ toward the toes). Internally the sensor sites stay in outline coordinates.
+const COP_CX = OUTLINE_W / 2, COP_CY = OUTLINE_L / 2;
 // Left insole outline (mm, SVG y down, toe at top), decimated from the CAD spline.
 const OUTLINE_PATH = "M36.3,272.0 L36.0,272.0 L35.3,271.9 L34.7,271.9 L34.2,271.8 L33.8,271.8 L33.3,271.7 L32.9,271.7 L32.3,271.6 L31.8,271.5 L31.3,271.4 L30.8,271.3 L30.2,271.1 L29.7,271.0 L29.1,270.8 L28.6,270.6 L28.0,270.4 L27.4,270.2 L26.7,270.0 L26.1,269.7 L25.4,269.4 L24.8,269.1 L24.1,268.8 L23.4,268.3 L22.6,267.9 L21.9,267.4 L21.1,266.8 L20.3,266.1 L19.5,265.4 L18.0,263.8 L15.2,259.0 L14.1,256.2 L13.6,254.4 L12.8,251.0 L12.2,247.2 L10.6,236.6 L9.9,231.6 L9.4,228.2 L8.9,223.9 L8.3,218.8 L7.5,210.5 L7.1,205.2 L6.8,198.3 L6.5,192.4 L6.4,189.1 L6.2,180.0 L6.0,171.9 L5.7,168.5 L5.3,164.4 L4.6,158.7 L3.9,153.1 L3.6,149.5 L3.3,145.8 L2.9,140.0 L2.5,135.9 L2.1,132.1 L1.1,122.7 L0.7,118.8 L0.4,114.8 L0.2,110.7 L0.1,104.2 L0.1,100.3 L0.0,96.6 L0.0,93.5 L0.1,89.0 L0.2,84.0 L0.4,79.8 L0.6,77.1 L1.0,73.2 L1.4,70.3 L1.9,66.9 L2.4,63.9 L3.2,59.5 L4.1,55.1 L4.9,51.1 L5.8,47.5 L6.7,44.2 L7.7,41.2 L8.9,38.3 L10.2,35.6 L11.7,32.9 L13.1,30.4 L14.7,28.0 L16.1,25.8 L17.6,23.8 L19.0,21.9 L20.4,20.3 L21.8,18.7 L23.1,17.3 L24.4,16.0 L25.7,14.7 L26.9,13.6 L28.0,12.5 L29.1,11.5 L30.2,10.6 L31.2,9.8 L32.1,9.1 L33.0,8.4 L33.9,7.8 L34.7,7.3 L35.5,6.8 L36.2,6.3 L36.9,5.9 L37.6,5.5 L38.3,5.1 L39.1,4.7 L40.2,4.1 L41.5,3.6 L42.7,3.1 L43.8,2.6 L45.0,2.2 L46.1,1.8 L47.2,1.5 L48.2,1.2 L49.3,0.9 L50.3,0.7 L51.3,0.5 L53.3,0.2 L54.6,0.1 L55.5,0.1 L56.5,0.0 L57.4,0.0 L58.3,0.0 L59.3,0.1 L59.8,0.1 L60.3,0.1 L60.8,0.2 L61.2,0.2 L61.7,0.3 L62.2,0.4 L62.7,0.5 L63.2,0.5 L63.7,0.6 L64.2,0.7 L64.7,0.8 L65.2,1.0 L65.7,1.1 L66.2,1.2 L66.8,1.4 L67.3,1.6 L67.8,1.7 L68.3,1.9 L68.9,2.1 L69.5,2.4 L70.1,2.6 L70.7,2.9 L71.3,3.2 L72.0,3.5 L72.6,3.9 L73.3,4.3 L74.1,4.8 L74.8,5.3 L75.7,6.0 L76.5,6.7 L77.4,7.5 L78.3,8.4 L79.2,9.5 L80.1,10.7 L80.9,12.1 L81.8,13.5 L82.6,15.1 L83.4,16.9 L84.1,18.7 L84.8,20.7 L85.5,22.8 L86.1,24.9 L86.7,27.1 L87.3,29.4 L88.4,33.6 L88.8,36.1 L89.3,38.5 L89.7,41.0 L89.9,43.5 L90.2,46.1 L90.3,48.8 L90.5,51.7 L90.6,56.2 L90.7,59.1 L90.7,62.0 L90.7,65.1 L90.6,68.2 L90.3,71.3 L90.0,74.5 L89.5,77.7 L88.9,80.9 L88.3,84.1 L87.6,87.3 L86.8,90.6 L85.8,93.9 L83.9,100.1 L82.6,103.8 L81.1,107.6 L78.4,114.2 L76.5,119.2 L74.5,124.8 L72.5,130.9 L70.5,137.2 L69.5,141.0 L69.1,142.8 L68.7,144.4 L68.4,146.1 L68.2,147.9 L68.0,149.8 L67.8,151.8 L67.6,153.9 L67.4,158.7 L67.3,162.1 L67.1,167.7 L66.9,173.9 L66.6,188.2 L66.5,199.9 L66.5,205.3 L66.7,215.2 L66.5,222.3 L66.2,226.1 L66.1,228.4 L65.5,233.5 L65.3,234.9 L65.1,236.4 L64.9,237.9 L64.6,239.4 L63.8,243.9 L63.0,248.2 L62.3,251.8 L61.9,253.3 L61.4,254.8 L60.9,256.3 L60.4,257.7 L59.7,259.1 L59.0,260.4 L58.0,262.2 L56.9,263.8 L54.6,266.4 L53.8,267.2 L52.9,267.9 L52.1,268.5 L51.2,269.0 L50.4,269.4 L49.6,269.8 L48.8,270.1 L48.1,270.3 L47.3,270.6 L46.6,270.8 L46.0,270.9 L45.4,271.1 L44.8,271.2 L44.2,271.3 L43.6,271.4 L43.1,271.5 L42.4,271.6 L41.5,271.8 L40.4,271.9 L39.5,271.9 L38.7,272.0 L37.8,272.0 L37.1,272.0 L36.7,272.0 L36.4,272.0Z";
 
@@ -327,7 +359,7 @@ const DEFAULT_CAL = [
   { aU: 3.41093, bU: 0.99299, aD: 1.73110, bD: 1.10614, a: 2.28257, b: 1.06399, base: 304.62, rmse1: 15.0, rmseH: 5.4, note: "UTM S7: load 15 pts rmse 3.1 N, unload 11 pts rmse 2.7 N" },
 ];
 const CAL_KEYS = ["aU", "bU", "aD", "bD", "a", "b", "base"];
-const pickCal = c => Object.fromEntries(CAL_KEYS.map(k => [k, c[k]]));
+const pickCal = (c, i) => ({ ...Object.fromEntries(CAL_KEYS.map(k => [k, c[k]])), m: c.m > 0 ? c.m : LIN_M[i] });
 
 // ---------- color scale (Turbo, polynomial approximation) ----------
 function turbo(t) {
@@ -348,12 +380,13 @@ let cal = loadCal();
 let recording = null;   // array of rows when recording
 const sides = {};
 
-function defaultCal() { return { hyst: true, L: DEFAULT_CAL.map(pickCal), R: DEFAULT_CAL.map(pickCal) }; }
+// model "linear" (default since 1.5.0): N = m·(mV − base); model "curve": the previous F = a·G^b / hysteresis model (unchanged, selectable)
+function defaultCal() { return { model: "linear", hyst: true, L: DEFAULT_CAL.map(pickCal), R: DEFAULT_CAL.map(pickCal) }; }
 function loadCal() {
   try {
     const s = JSON.parse(localStorage.getItem("insoleCal_v2"));
     const valid = a => Array.isArray(a) && a.length === 7 && a.every(c => CAL_KEYS.every(k => c[k] > 0));
-    if (s && valid(s.L) && valid(s.R)) return { hyst: s.hyst !== false, L: s.L, R: s.R };
+    if (s && valid(s.L) && valid(s.R)) return { model: s.model === "curve" ? "curve" : "linear", hyst: s.hyst !== false, L: s.L.map(pickCal), R: s.R.map(pickCal) };
   } catch (e) {}
   return defaultCal();
 }
@@ -411,6 +444,7 @@ function qstep(q, w, dt) {                    // integrate body rate w (rad/s) o
 }
 
 function gOf(mv, base) { return mv > base + DEAD_MV ? (mv / base - 1) / RF * 1e6 : 0; }   // conductance, µS
+function fLin(mv, base, c) { return mv > base + DEAD_MV ? c.m * (mv - base) : 0; }          // linear model, N before the preload tare
 function fStatic(G, c) {          // no load history: loading curve (hysteresis on) or the single curve
   if (!(G > 0)) return 0;
   return cal.hyst ? c.aU * Math.pow(G, c.bU) : c.a * Math.pow(G, c.b);
@@ -476,7 +510,10 @@ function buildSide(key) {
           <div class="stat"><b data-r="total">—</b><span data-r="totlbl">vGRF N</span></div>
           <div class="stat"><b data-r="max">—</b><span>Max site</span></div>
           <div class="stat"><b data-r="hz">—</b><span>Rate Hz</span></div>
-          <div class="stat"><b data-r="cop">—</b><span>COP x, y mm</span></div>
+        </div>
+        <div class="stats">
+          <div class="stat" title="Centre of pressure, transverse. Origin = middle of the insole; + = right side of the drawing"><b data-r="copx">—</b><span>COP X mm (ML)</span></div>
+          <div class="stat" title="Centre of pressure, heel to toe. Origin = middle of the insole; + = toward the toes"><b data-r="copy">—</b><span>COP Y mm (AP)</span></div>
         </div>
         <div class="stats imu">
           <div class="stat" title="Peak dynamic acceleration |a − g| over the last second (200 Hz IMU, gravity removed; firmware v1.3+)"><b data-r="shock">—</b><span>Shock g</span></div>
@@ -500,6 +537,7 @@ function buildSide(key) {
   const defs = el("defs", {}, svg);
   const g0 = el("g", key === "R" ? { transform: `translate(${OUTLINE_W},0) scale(-1,1)` } : {}, svg);
   el("path", { d: OUTLINE_PATH, class: "outline" }, g0);
+  el("path", { d: `M${COP_CX},0 V${OUTLINE_L} M0,${COP_CY} H${OUTLINE_W}`, class: "axisline" }, svg);   // COP origin (X = 0, Y = 0)
   const glowLayer = el("g", {}, svg), sensorLayer = el("g", {}, svg);
   const nodes = SITES.map((s, i) => {
     const [x, Y] = s[key];
@@ -573,6 +611,8 @@ function activate(side, kind, closeFn) {
   side.tOff = null; side.ble = null; side.reconnecting = false;
   side.send = null; side.demoUnit = null; side.demoWait = 0; side.demoTries = 0;
   side.copTrail = []; side.copXY = null; side.wasOn = false;
+  side.fw = null; side.timing = null; side.sq = null; side.tsw = null; side.devId = null; side.errs = null;   // per-connection research state
+  side.nomHz = kind === "Demo" ? 50 : null;
   side.peakN.fill(0); side.peakMV.fill(0);
   for (const r of ["usb", "ble", "demo"]) side.q(r).disabled = true;
   side.q("zero").disabled = false;
@@ -588,6 +628,10 @@ function activate(side, kind, closeFn) {
   updateWakeLock();
 }
 function deactivate(side, reason) {
+  if (side.conn && recording) {
+    const kind = side.conn.kind;
+    if (kind === "USB" || kind === "BLE") recEvent(kind + "_DISCONNECT", side, { reason: reason || "disconnected by the user", final: true });
+  }
   side.conn = null;
   side.footWarn = "";
   side.card.classList.add("inactive");
@@ -619,24 +663,31 @@ async function disconnect(side) {
 // devT = board time in ms (USB millis, BLE seq × 20 ms, demo none). Mapped onto the PC clock with the smallest
 // observed delay so both feet share one timebase without BLE/USB batching jitter.
 // imu (optional) = [ax, ay, az (g), gx, gy, gz (°/s), apk (g, peak |a| in the frame)] in sensor axes.
-function onSample(side, mvArr, devT, imu) {
+// ex (optional) = { kind, seq, us }: kind "mcu_us" (board micros before the ADC burst, firmware v1.4 / BLE v2), "mcu_ms" (board millis, older USB
+// firmware), "seq_est" (BLE v1: time only estimated from the 16-bit counter × 20 ms, devT is then NOT a measured timestamp), "none" (Demo).
+function onSample(side, mvArr, devT, imu, ex) {
+  ex = ex || { kind: devT == null ? "none" : "mcu_ms", seq: null };
   for (let i = 0; i < 7; i++) side.mv[i] = mvArr[i];
   side.count++;
   const now = performance.now();
+  const rxUtc = performance.timeOrigin + now;                 // host receive time, Unix UTC ms (not the sampling clock)
   side.lastData = now;
-  const dev = devT;
+  const dev = ex.kind === "seq_est" ? null : devT;            // measured board time only
+  const sq = ex.seq != null ? seqTrack(side, ex.seq, dev) : null;
+  if (sq && ex.v2 && side.ble) { side.ble.got++; side.ble.lost += sq.missing; }
   if (devT == null) devT = now;
   if (side.tOff == null || now - devT < side.tOff) side.tOff = now - devT;
   const t = devT + side.tOff;
 
   if (side.autoZero || side.zeroPending) {
-    if (!side.zeroAcc) side.zeroAcc = { n: 0, sum: new Array(7).fill(0), max: new Array(7).fill(0) };
+    if (!side.zeroAcc) side.zeroAcc = { n: 0, t0: now, sum: new Array(7).fill(0), max: new Array(7).fill(0) };
     const z = side.zeroAcc;
     z.n++;
     for (let i = 0; i < 7; i++) { z.sum[i] += mvArr[i]; z.max[i] = Math.max(z.max[i], mvArr[i]); }
-    if (z.n >= 50) {                                   // ~1 s at 50 Hz
+    if (now - z.t0 >= 1000 && z.n >= 20) {            // 1 s of data at any sample rate (50 Hz: 50 samples, 200 Hz: 200)
       const avg = z.sum.map(s => s / z.n);
-      if (side.zeroPending || !avg.some(v => v > 450)) setMsg(side, applyZero(side, avg));
+      const before = { base: side.base.slice(), tare: side.tare.slice() }, wasAuto = !side.zeroPending;
+      if (side.zeroPending || !avg.some(v => v > 450)) { setMsg(side, applyZero(side, avg)); zeroEvents(side, before, avg, wasAuto, ex, dev); }
       else setMsg(side, "Insole looked loaded at connect, so zero was skipped. Unload it and press Zero.");
       side.autoZero = false; side.zeroPending = false; side.zeroAcc = null;
       side.q("zero").disabled = !side.conn;
@@ -646,7 +697,8 @@ function onSample(side, mvArr, devT, imu) {
   const c = cal[side.key];
   for (let i = 0; i < 7; i++) {
     const G = gOf(side.mv[i], side.base[i]);
-    const F = cal.hyst ? hystForce(side.hy[i], G, c[i], side.tareG[i]) : fStatic(G, c[i]);
+    const F = cal.model === "linear" ? fLin(side.mv[i], side.base[i], c[i])
+      : cal.hyst ? hystForce(side.hy[i], G, c[i], side.tareG[i]) : fStatic(G, c[i]);
     side.N[i] = Math.max(0, F - side.tare[i]);
     if (side.N[i] > side.peakN[i]) side.peakN[i] = side.N[i];
     if (side.mv[i] > side.peakMV[i]) side.peakMV[i] = side.mv[i];
@@ -665,20 +717,36 @@ function onSample(side, mvArr, devT, imu) {
     side.wasOn = true;
     side.copXY = [mx / Fz, my / Fz];
     side.copTrail.push(side.copXY);
-    if (side.copTrail.length > 150) side.copTrail.shift();
+    if (side.copTrail.length > 600) side.copTrail.shift();
   } else { side.wasOn = false; side.copXY = null; }
 
   if (recording) {
     const kind = side.conn ? side.conn.kind : "";
+    const first = !recording.sides[side.key];
     const r = recording.sides[side.key] || (recording.sides[side.key] = { t: [], N: [], F: [], imu: [], kind });
     r.t.push(t); r.N.push(side.N.slice()); r.F.push(Fz); r.imu.push(imu ? imu.slice() : null);
+    const rj = recording.rj;
+    if (first && !rj.cfg0[side.key]) rj.cfg0[side.key] = snapSide(side);   // foot connected after Record: configuration at its first recorded sample
+    const st = rj.stats[side.key] || (rj.stats[side.key] = { samples: 0, first_seq: null, last_seq: null, missing: 0, duplicates: 0,
+      out_of_order: 0, mcu_restarts: 0, dev_first_ms: null, dev_last_ms: null, time_src: ex.kind });
+    st.samples++;
+    if (ex.seq != null) {
+      if (st.first_seq == null) st.first_seq = ex.seq;
+      st.last_seq = ex.seq;
+      if (sq.kind === "gap") st.missing += sq.missing; else if (sq.kind === "dup") st.duplicates++;
+      else if (sq.kind === "ooo") st.out_of_order++; else if (sq.kind === "reset") st.mcu_restarts++;
+    }
+    if (dev != null) { if (st.dev_first_ms == null) st.dev_first_ms = dev; st.dev_last_ms = dev; }
     const k = bwK(side.key);
-    logRow(recording, side.key, [(t - recording.t0).toFixed(1), side.key, kind,
-      ...side.mv.map(v => v.toFixed(0)), ...side.N.map(v => v.toFixed(1)), Fz.toFixed(1),
-      side.copXY ? side.copXY[0].toFixed(1) : "", side.copXY ? side.copXY[1].toFixed(1) : "",
-      dev == null ? "" : dev.toFixed(0),
+    let vmask = 0, smask = 0;                                      // bit i = SITES[i] (bit0 S1, bit1 S4, bit2 S6, bit3 S11, bit4 S13, bit5 S10, bit6 S14)
+    for (let i = 0; i < 7; i++) { if (Number.isFinite(mvArr[i]) && mvArr[i] > 0) vmask |= 1 << i; if (mvArr[i] >= SAT_MV) smask |= 1 << i; }
+    logRow(recording, side.key, [(t - recording.t0).toFixed(3), side.key, kind,
+      ...side.mv.map(v => v.toFixed(0)), ...side.N.map(v => v.toFixed(3)), Fz.toFixed(3),
+      side.copXY ? (side.copXY[0] - COP_CX).toFixed(3) : "", side.copXY ? (side.copXY[1] - COP_CY).toFixed(3) : "",
+      dev == null ? "" : dev.toFixed(3),
       ...(imu ? [...imu.slice(0, 3).map(v => v.toFixed(3)), ...imu.slice(3, 6).map(v => v.toFixed(1)), imu[6].toFixed(3)] : ["", "", "", "", "", "", ""]),
-      Number.isFinite(k) ? (Fz * k).toFixed(1) : ""].join(","));
+      Number.isFinite(k) ? (Fz * k).toFixed(3) : "",
+      ex.seq == null ? "" : ex.seq, ex.kind === "mcu_us" ? ex.us : "", ex.kind, rxUtc.toFixed(3), vmask, smask].join(","));
   }
   side.dirty = true;
 }
@@ -722,7 +790,7 @@ function applyZero(side, avg) {
     else {
       if (!ok(side.base[i])) side.base[i] = c[i].base;
       side.tareG[i] = gOf(avg[i], side.base[i]);
-      side.tare[i] = fStatic(side.tareG[i], c[i]);
+      side.tare[i] = cal.model === "linear" ? fLin(avg[i], side.base[i], c[i]) : fStatic(side.tareG[i], c[i]);
       pre.push(`${SITES[i].id} ${avg[i].toFixed(0)} mV = ${side.tare[i].toFixed(0)} N`);
     }
   }
@@ -739,17 +807,34 @@ function onLine(side, line) {
   line = line.trim();
   if (!line) return;
   if (line.startsWith("D,")) {
+    // D,<ms>,<mV1..7>[,<ax,ay,az,gx,gy,gz,apk>][,<seq>,<us>]   field counts: 9 (v1.0), 16 (v1.1-1.3 IMU), 11 (v1.4 no IMU), 18 (v1.4)
     const p = line.split(",");
-    if (p.length < 9) return;
+    const nf = p.length;
+    if (nf !== 9 && nf !== 11 && nf !== 16 && nf !== 18) { streamError(side, "bad_line", { fields: nf }); return; }
     const v = p.slice(2, 9).map(Number);
     let imu = null;                                  // v1.1: ax,ay,az (mg), gx,gy,gz (0.1 °/s), apk (mg)
-    if (p.length >= 16) {
+    if (nf === 16 || nf === 18) {
       const r = p.slice(9, 16).map(Number);
       if (r.every(Number.isFinite)) imu = [r[0] / 1000, r[1] / 1000, r[2] / 1000, r[3] / 10, r[4] / 10, r[5] / 10, r[6] / 1000];
     }
-    if (v.every(Number.isFinite)) onSample(side, v, Number.isFinite(+p[1]) ? +p[1] : null, imu);
+    let devT = Number.isFinite(+p[1]) ? +p[1] : null, ex = { kind: "mcu_ms", seq: null };
+    if (nf === 11 || nf === 18) {                    // v1.4: sample counter and micros() at the start of the ADC burst
+      const k = nf === 11 ? 9 : 16, sq = +p[k], us = +p[k + 1];
+      if (!Number.isFinite(sq) || !Number.isFinite(us)) { streamError(side, "bad_line", { fields: nf, why: "seq/us" }); return; }
+      const uu = unwrapUs(side, us);
+      ex = { kind: "mcu_us", seq: sq, us: uu };
+      devT = uu / 1000;
+    }
+    if (v.every(Number.isFinite)) onSample(side, v, devT, imu, ex);
+    else streamError(side, "bad_line", { fields: nf, why: "non-numeric mV" });
   } else if (line.startsWith("#FOOT,")) {
     footCheck(side, line.charAt(6));
+  } else if (line.startsWith("#INFO,")) {
+    parseInfo(side, line);
+  } else if (line.startsWith("#TIMING,")) {
+    parseTiming(side, line);
+  } else if (line.startsWith("#WARN,")) {
+    streamError(side, "mcu_warning", { text: line.slice(6) });
   } else if (/^(t:|S1:)/.test(line)) {
     onDemoNLine(side, line);
   } else if (line.startsWith("# RF")) {             // FSR_Demo_N help line: "... output N|mV, IMU ..."
@@ -787,6 +872,71 @@ function onDemoNLine(side, line) {
     else setMsg(side, "Board sends FSR_Demo_N lines but never reported its unit (N / mV). Flash FSR_Insole_App instead.");
   }
 }
+// micros() is a uint32 that wraps every 71.6 min: continue it as one increasing count of microseconds (a backwards step stays negative)
+function unwrapUs(side, us) {
+  const w = side.tsw || (side.tsw = { last: null, u: 0 });
+  if (w.last == null) w.u = us;
+  else { const d = (us - w.last) >>> 0; w.u += d < 2147483648 ? d : d - 4294967296; }
+  w.last = us;
+  return w.u;
+}
+// "#INFO,FSR_Insole_App v1.4,ch=7,hz=200,...,oversample=8,mac=..,build=Nov 12 2026 12:00:00" -> side.fw
+function parseInfo(side, line) {
+  const g = re => { const m = re.exec(line); return m ? m[1] : null; };
+  side.fw = { version: g(/FSR_Insole_App v([\d.]+)/), hz: +g(/,hz=(\d+)/) || null, imu: g(/,imu=(\w+)/), oversample: +g(/,oversample=(\d+)/) || null,
+    mac: g(/,mac=([0-9A-Fa-f]+)/), build: g(/,build=(.+)$/), transport: "USB" };
+  if (side.fw.hz) side.nomHz = side.fw.hz;
+  if (side.fw.mac) side.devId = `esp32c6:${side.fw.mac}` + (side.devId ? ` (${side.devId})` : "");
+}
+// "#TIMING,hz=200,oversample=8,frames=..,adc_us_avg=..,adc_us_max=..,frame_us_max=..,late=..,late_us_max=..,over=..,resync=..,ble_mtu=.."
+function parseTiming(side, line) {
+  const t = {};
+  for (const part of line.slice(8).split(",")) { const i = part.indexOf("="); if (i > 0) t[part.slice(0, i)] = +part.slice(i + 1); }
+  const prev = side.timing;
+  side.timing = t;
+  if (recording && recording.rj) {
+    recording.rj.timing[side.key] = t;
+    if (prev && (t.late > prev.late || t.over > prev.over || t.resync > prev.resync))
+      recEvent("MCU_OVERRUN", side, { late_delta: t.late - prev.late, over_delta: t.over - prev.over, resync_delta: t.resync - prev.resync,
+        adc_us_max: t.adc_us_max, frame_us_max: t.frame_us_max, late_us_max: t.late_us_max, frame_budget_us: Math.round(1e6 / (t.hz || 200)) });
+  }
+}
+// Sample counter bookkeeping (uint32 from the board, or the unwrapped 16-bit counter of BLE v1): missing / duplicate / out-of-order / restart
+function seqTrack(side, seq, devMs) {
+  const q = side.sq || (side.sq = { last: null, got: 0, missing: 0, dup: 0, ooo: 0, resets: 0 });
+  let kind = "ok", missing = 0;
+  if (q.last != null) {
+    const d = seq - q.last;
+    if (d === 1) { /* in order */ }
+    else if (d > 1) { kind = "gap"; missing = d - 1; q.missing += missing; }
+    else if (d === 0) { kind = "dup"; q.dup++; }
+    else if (seq < 1000 && q.last > 2000) { kind = "reset"; q.resets++; }      // the board restarted
+    else { kind = "ooo"; q.ooo++; }
+  }
+  if (kind !== "dup" && kind !== "ooo") q.last = seq;
+  q.got++;
+  if (kind !== "ok" && recording) {
+    const x = { seq, dev_ms: devMs };
+    if (kind === "gap") recEvent("PACKET_DROP", side, { missing, seq_from: seq - missing, seq_to: seq - 1, transport: side.conn ? side.conn.kind : null }, x);
+    else if (kind === "dup") recEvent("PACKET_DUPLICATE", side, { seq }, x);
+    else if (kind === "ooo") recEvent("PACKET_OUT_OF_ORDER", side, { seq, last_seq: q.last }, x);
+    else recEvent("STREAM_ERROR", side, { kind: "mcu_restart", seq, last_seq: q.last }, x);
+  }
+  return { kind, missing };
+}
+// Stream problems (bad lines, short BLE packets, buffer overflows): at most one event per kind per second, the rest is counted
+function streamError(side, kind, details) {
+  const now = performance.now(), e = side.errs || (side.errs = {});
+  const q = e[kind] || (e[kind] = { n: 0, last: -1e9, pending: 0 });
+  q.n++;
+  if (recording && recording.rj) {
+    const c = recording.rj.errors[side.key] || (recording.rj.errors[side.key] = {});
+    c[kind] = (c[kind] || 0) + 1;
+  }
+  if (now - q.last < 1000) { q.pending++; return; }
+  const pending = q.pending; q.pending = 0; q.last = now;
+  recEvent("STREAM_ERROR", side, { kind, count_since_last_event: pending, ...details });
+}
 function footCheck(side, f) {
   if (f !== "L" && f !== "R") return;
   if (side.footReported === f) return;
@@ -802,7 +952,7 @@ async function connectUSB(side) {
   let port;
   try {
     port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
+    await port.open({ baudRate: 921600 });       // native USB ignores it; the CH343/UART port needs it for 200 Hz (firmware v1.4)
   } catch (e) {
     if (e.name === "NotFoundError") { setMsg(side, "USB: no port selected."); return; }
     setMsg(side, /open/i.test(e.message)
@@ -818,6 +968,7 @@ async function connectUSB(side) {
     try { await port.close(); } catch (e) {}
   };
   activate(side, "USB", close);
+  try { const i = port.getInfo(); if (i.usbVendorId != null) side.devId = `usb:${i.usbVendorId.toString(16)}:${(i.usbProductId || 0).toString(16)}`; } catch (e) {}
   let chain = Promise.resolve();             // serialise writes (one writer lock at a time)
   side.send = text => (chain = chain.then(async () => {
     try {
@@ -840,7 +991,7 @@ async function connectUSB(side) {
             buf += dec.decode(value, { stream: true });
             let nl;
             while ((nl = buf.indexOf("\n")) >= 0) { onLine(side, buf.slice(0, nl)); buf = buf.slice(nl + 1); }
-            if (buf.length > 4096) buf = "";
+            if (buf.length > 4096) { buf = ""; streamError(side, "rx_buffer_overflow", {}); }
           }
         } finally { reader.releaseLock(); }
       }
@@ -864,7 +1015,27 @@ async function connectBLE(side) {
     });
   } catch (e) { setMsg(side, "Bluetooth: " + e.message); return; }
   const v = new Array(7);
-  let tx = null, ix = null, stop = false, imuLast = null;
+  let tx = null, ix = null, f2 = null, stop = false, imuLast = null;
+  // BLE v2 (firmware v1.4): one notification = 4 bytes header [2, n, fw, flags] + n × 36 bytes
+  //   [u32 seq, u32 us (micros before the ADC burst), 7 × u16 mV, 7 × i16 IMU (ax ay az mg, gx gy gz 0.1 °/s, apk mg)]
+  const onV2 = ev => {
+    const dv = ev.target.value, b = side.ble;
+    if (!b) return;
+    if (dv.byteLength < 4 || dv.getUint8(0) !== 2) { streamError(side, "ble_bad_packet", { bytes: dv.byteLength, version: dv.byteLength ? dv.getUint8(0) : null }); return; }
+    const n = dv.getUint8(1), fw = dv.getUint8(2), hasImu = (dv.getUint8(3) & 1) === 1;
+    const whole = Math.min(n, Math.floor((dv.byteLength - 4) / 36));
+    if (whole < n) streamError(side, "ble_short_packet", { bytes: dv.byteLength, expected: 4 + 36 * n, hint: "ATT MTU too small for 200 Hz packets: use USB" });
+    if (!side.fw) side.fw = { version: `${Math.floor(fw / 10)}.${fw % 10}`, hz: 200, imu: hasImu ? "BMI270" : "none", oversample: null, mac: null, build: null, transport: "BLE" };
+    side.nomHz = 200;
+    for (let s = 0; s < whole; s++) {
+      const o = 4 + 36 * s, sq = dv.getUint32(o, true), us = dv.getUint32(o + 4, true);
+      for (let i = 0; i < 7; i++) v[i] = dv.getUint16(o + 8 + 2 * i, true);
+      let im = null;
+      if (hasImu) { const r = []; for (let i = 0; i < 7; i++) r.push(dv.getInt16(o + 22 + 2 * i, true)); im = [r[0] / 1000, r[1] / 1000, r[2] / 1000, r[3] / 10, r[4] / 10, r[5] / 10, r[6] / 1000]; }
+      const uu = unwrapUs(side, us);
+      onSample(side, v, uu / 1000, im, { kind: "mcu_us", seq: sq, us: uu, v2: true });
+    }
+  };
   const onImu = ev => {                            // same seq as the FSR packet that follows it
     const dv = ev.target.value;
     if (dv.byteLength < 16) return;
@@ -884,11 +1055,20 @@ async function connectBLE(side) {
     b.seq = sq; b.got++;
     for (let i = 0; i < 7; i++) v[i] = dv.getUint16(2 + 2 * i, true);
     const im = imuLast && ((sq - imuLast.seq) & 0xffff) <= 1 ? imuLast.v : null;
-    onSample(side, v, b.seqU * 20, im);            // firmware samples at 50 Hz
+    side.nomHz = 50;
+    onSample(side, v, b.seqU * 20, im, { kind: "seq_est", seq: b.seqU });   // v1.0-1.3 firmware: 50 Hz, time only estimated from the counter
   };
   const attach = async () => {
     const server = await device.gatt.connect();
     const svc = await server.getPrimaryService(NUS_SERVICE);
+    if (f2) f2.removeEventListener("characteristicvaluechanged", onV2);
+    f2 = null;
+    try { f2 = await svc.getCharacteristic(NUS_FSR2); } catch (e) { f2 = null; }      // firmware v1.4: batched 200 Hz packet
+    if (f2) {
+      f2.addEventListener("characteristicvaluechanged", onV2);
+      await f2.startNotifications();
+      return;
+    }
     if (tx) tx.removeEventListener("characteristicvaluechanged", onNotify);
     tx = await svc.getCharacteristic(NUS_TX);
     tx.addEventListener("characteristicvaluechanged", onNotify);
@@ -912,11 +1092,13 @@ async function connectBLE(side) {
   const close = async () => { stop = true; try { device.gatt.disconnect(); } catch (e) {} };
   activate(side, "BLE", close);
   side.ble = { seq: null, seqU: 0, got: 0, lost: 0, drops: 0 };
+  side.devId = device.name ? `ble:${device.name}` : null;
   const m = /Insole-([LR])/.exec(device.name || "");
   if (m) footCheck(side, m[1]);
   device.addEventListener("gattserverdisconnected", async () => {
     if (stop || !side.conn || side.conn.close !== close) return;
     side.ble.drops++; side.reconnecting = true;
+    recEvent("BLE_DISCONNECT", side, { drops: side.ble.drops, final: false });
     setMsg(side, "Bluetooth link lost, reconnecting…" + (recording ? " The recording keeps going." : ""));
     for (let i = 0; i < 12; i++) {
       await new Promise(r => setTimeout(r, Math.min(500 * 2 ** i, 4000)));
@@ -924,6 +1106,7 @@ async function connectBLE(side) {
       try {
         await attach();
         side.reconnecting = false;
+        recEvent("BLE_RECONNECT", side, { attempt: i + 1 });
         setMsg(side, `Bluetooth link restored (${side.ble.drops} drop${side.ble.drops > 1 ? "s" : ""} so far).`);
         return;
       } catch (e) {}
@@ -947,6 +1130,7 @@ function connectDemo(side) {
     const c = cal[side.key];
     const mv = prof.map(([pk, ce, w], i) => {     // inverse of the app's model: loading curve up, scaled unloading down
       const F = ph < 0.66 ? pk * bump(ph, ce, w) : 0, k = c[i];
+      if (cal.model === "linear") return Math.min(3300, Math.round(base[i] + F / k.m + (Math.random() - .5) * 4));   // inverse of N = m·(mV − base)
       const G = !(F > 0) ? 0 : !cal.hyst ? gInv(F, k.a, k.b)
         : ph <= ce ? gInv(F, k.aU, k.bU) : gInv(pk, k.aU, k.bU) * Math.pow(F / pk, 1 / k.bD);
       return Math.min(3300, Math.round(base[i] * (1 + G * 1e-6 * RF) + (Math.random() - .5) * 4));
@@ -1052,10 +1236,12 @@ function render() {
       const [cx, cy] = s.copXY;
       s.cop.setAttribute("transform", `translate(${cx.toFixed(2)},${(OUTLINE_L - cy).toFixed(2)})`);
       s.cop.setAttribute("visibility", "visible");
-      s.q("cop").textContent = `${cx.toFixed(0)}, ${cy.toFixed(0)}`;
+      s.q("copx").textContent = (cx - COP_CX).toFixed(1);
+      s.q("copy").textContent = (cy - COP_CY).toFixed(1);
     } else {
       s.cop.setAttribute("visibility", "hidden");
-      s.q("cop").textContent = "—";
+      s.q("copx").textContent = "—";
+      s.q("copy").textContent = "—";
     }
     s.trail.setAttribute("points", hasData
       ? s.copTrail.map(p => `${p[0].toFixed(1)},${(OUTLINE_L - p[1]).toFixed(1)}`).join(" ") : "");
@@ -1123,7 +1309,45 @@ function downloadText(name, text) { downloadBlob(name, new Blob([text], { type: 
 // so a long Bluetooth session on a laptop or phone survives a closed tab, a crash or a dropped link. Finished logs
 // stay under "Logs" (download / share / delete) ----------
 const CSV_HEAD = ["t_ms", "foot", "src", ...SITES.map(s => s.id + "_mV"), ...SITES.map(s => s.id + "_N"),
-  "Fz_N", "COPx_mm", "COPy_mm", "dev_ms", "ax_g", "ay_g", "az_g", "gx_dps", "gy_dps", "gz_dps", "apk_g", "Fz_BW_N"].join(",");
+  "Fz_N", "COPx_mm", "COPy_mm", "dev_ms", "ax_g", "ay_g", "az_g", "gx_dps", "gy_dps", "gz_dps", "apk_g", "Fz_BW_N",
+  // research columns (appended in 1.5.0, existing columns unchanged): see docs/RESEARCH_EXPORT.md
+  "sample_seq", "dev_us", "time_src", "host_rx_utc_ms", "sensor_valid_mask", "saturation_mask"].join(",");
+
+// ---------- research export helpers: recording events, configuration snapshot, study identification ----------
+const nowUtc = () => performance.timeOrigin + performance.now();
+const clone = o => JSON.parse(JSON.stringify(o));
+// Event log of the running recording (in memory, saved with the log every second; never touches the sample path)
+function recEvent(type, side, details, x) {
+  const r = recording && recording.rj;
+  if (!r) return;
+  if (r.events.length >= 20000) { r.events_dropped++; return; }
+  r.events.push({ event_type: type, dev_ms: x && x.dev_ms != null ? x.dev_ms : "", host_utc_ms: nowUtc(),
+    sample_seq: x && x.seq != null ? x.seq : "", details: { foot: side ? side.key : null, ...details } });
+}
+// Effective configuration of one foot (what converts mV to N and N to COP)
+function snapSide(side) {
+  const k = side.key;
+  return { model: cal.model, hysteresis_enabled: cal.model === "curve" && cal.hyst, cal: clone(cal[k]), base_mV: side.base.slice(), tare_N: side.tare.slice(),
+    tare_G_uS: side.tareG.slice(), transport: side.conn ? side.conn.kind : null, device_id: side.devId || null, firmware: side.fw ? clone(side.fw) : null,
+    nominal_hz: side.nomHz || null, mount: clone(settings.mount), bw_scale_enabled: settings.bwOn, bw_factor: Number.isFinite(bwK(k)) ? bwK(k) : null,
+    at_utc_ms: nowUtc() };
+}
+function zeroEvents(side, before, avg, auto, ex, dev) {
+  if (!recording) return;
+  const x = { seq: ex && ex.seq, dev_ms: dev };
+  recEvent("ZERO", side, { auto, avg_mV: avg.map(v => +v.toFixed(2)), base_old: before.base, base_new: side.base.slice() }, x);
+  if (before.tare.some((v, i) => v !== side.tare[i]))
+    recEvent("TARE_CHANGE", side, { tare_old_N: before.tare, tare_new_N: side.tare.slice(), base_new: side.base.slice() }, x);
+  if (recording.rj.cfg0[side.key]) recording.rj.cfg_after_zero = (recording.rj.cfg_after_zero || 0) + 1;
+}
+const cleanId = s => String(s == null ? "" : s).trim().replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+const studyInput = id => document.getElementById(id);
+function studyNow() {                                   // study fields as typed at record start
+  const num = id => { const v = parseFloat(studyInput(id).value); return Number.isFinite(v) ? v : null; };
+  const pid = cleanId(studyInput("inPid").value) || "P00", run = cleanId(studyInput("inRun").value) || "R00";
+  return { participant_id: pid, run_id: run, recording_id: `${pid}_${run}`, condition: studyInput("inCond").value.trim() || null,
+    treadmill_speed_kmh: num("inSpeed"), body_mass_kg: num("inMass") };
+}
 function csvMeta() {
   const f = a => a.map(v => v.toFixed(1)).join("/");
   const ble = s => s.ble ? `${s.ble.lost}/${s.ble.got + s.ble.lost} lost, ${s.ble.drops} drops` : "-";
@@ -1132,8 +1356,9 @@ function csvMeta() {
   return `# Insole Force Monitor, RF ${RF}, base L=${f(sides.L.base)} R=${f(sides.R.base)}` +
     `, tare_N L=${f(sides.L.tare)} R=${f(sides.R.tare)}` +
     `, Fz = sum(Fi), BLE L=${ble(sides.L)} R=${ble(sides.R)}, dev_ms = board time` +
-    `, BW factor L=${one(bwK("L"), 4)} R=${one(bwK("R"), 4)} (Fz_BW_N = Fz × factor, scaling ${settings.bwOn ? "on" : "off"} in the app)` +
-    `, IMU sensor axes (toe ${settings.mount.fwd}, up ${settings.mount.up}), apk = peak |a - g| per 20 ms frame (gravity removed, firmware v1.3+)\n` +
+    `, BW factor L=${one(bwK("L"), 4)} R=${one(bwK("R"), 4)} (Fz_BW_N = Fz x factor, scaling ${settings.bwOn ? "on" : "off"} in the app)` +
+    `, IMU sensor axes (toe ${settings.mount.fwd}, up ${settings.mount.up}), apk = peak |a - g| per frame (gravity removed, firmware v1.3+)` +
+    `, COPx/COPy origin = middle of the insole, Fz/N/COP unscaled, columns from sample_seq on are research columns (app ${APP_VERSION})\n` +
     `# cal ${cal.hyst ? "hysteresis, per channel aU/bU/aD/bD (loading / unloading F = a*G^b)" : "single curve, per channel a/b"}` +
     `, G uS = (mV/base-1)/RF*1e6. L: ${cc("L")}  R: ${cc("R")}`;
 }
@@ -1159,11 +1384,12 @@ function idb(stores, mode, fn) {          // one transaction; resolves with fn's
     t.onerror = t.onabort = () => rej(t.error);
   }));
 }
-const logInfo = L => ({ id: L.id, name: L.name, startedAt: L.startedAt, meta: L.meta, head: CSV_HEAD,
-  rows: L.rows, bytes: L.bytes, dur: L.dur, feet: L.feet, done: L.done });
+const logInfo = L => ({ id: L.id, name: L.name, startedAt: L.startedAt, meta: L.meta, metaStart: L.metaStart, head: L.head || CSV_HEAD,
+  rows: L.rows, bytes: L.bytes, dur: L.dur, feet: L.feet, done: L.done, rj: L.rj });
 function logStart(rec) {
   const L = { id: Date.now(), name: `insole_${stamp(rec.startedAt)}.csv`, startedAt: rec.startedAt.toISOString(),
-    meta: csvMeta(), rows: 0, bytes: 0, dur: 0, feet: "", done: false, n: 0, pend: [], mem: null, saved: 0, t0: rec.t0 };
+    meta: csvMeta(), rows: 0, bytes: 0, dur: 0, feet: "", done: false, n: 0, pend: [], mem: null, saved: 0, t0: rec.t0, rj: rec.rj, head: CSV_HEAD };
+  L.metaStart = L.meta;                      // header comment lines as they were at the START (L.meta is refreshed at Stop for the legacy CSV)
   L.chain = idb("logs", "readwrite", t => t.objectStore("logs").put(logInfo(L))).catch(() => { L.mem = []; });
   L.timer = setInterval(() => logFlush(L), 1000);
   return L;
@@ -1189,14 +1415,209 @@ function logFlush(L) {
   });
   return L.chain;
 }
-async function logBlob(id, L) {              // whole CSV: meta + header + stored chunks (+ in-memory remainder)
+async function logParts(id, L) {             // info + stored text chunks (+ in-memory remainder) of one log
   const info = L ? logInfo(L) : await idb("logs", "readonly", t => t.objectStore("logs").get(id));
   let chunks = [];
   try {
     chunks = await idb("chunks", "readonly", t => t.objectStore("chunks").getAll(IDBKeyRange.bound([id, 0], [id, Infinity])));
   } catch (e) {}
-  const parts = [info.meta + "\n" + (info.head || CSV_HEAD) + "\n", ...chunks.map(c => c.text), ...(L && L.mem ? L.mem : [])];
-  return new Blob(parts, { type: "text/csv" });
+  return { info, texts: [...chunks.map(c => c.text), ...(L && L.mem ? L.mem : [])] };
+}
+async function logBlob(id, L) {              // whole CSV: meta + header + stored chunks (+ in-memory remainder)
+  const { info, texts } = await logParts(id, L);
+  return new Blob([info.meta + "\n" + (info.head || CSV_HEAD) + "\n", ...texts], { type: "text/csv" });
+}
+// Same raw samples as XML: one <Sample> per CSV row (foot, source, time, Fz, COP, 7 <Sensor mV N>, optional <IMU>).
+const xmlEsc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const xmlName = name => name.replace(/\.csv$/i, "") + ".xml";
+async function logXmlBlob(id, L) {
+  const { info, texts } = await logParts(id, L);
+  const cols = (info.head || CSV_HEAD).split(","), ix = n => cols.indexOf(n);
+  const at = (v, names) => names.map(n => { const x = v[ix(n)]; return x === undefined || x === "" ? "" : ` ${n}="${xmlEsc(x)}"`; }).join("");
+  const sens = SITES.map((s, i) => [ix(s.id + "_mV"), ix(s.id + "_N"), s.id, s.ch]);
+  const hasImu = ix("ax_g") >= 0;
+  const rowXml = line => {
+    const v = line.split(",");
+    let x = `    <Sample${at(v, ["t_ms", "foot", "src", "dev_ms", "Fz_N", "COPx_mm", "COPy_mm", "Fz_BW_N"])}>\n`;
+    for (const [m, n, id, ch] of sens) x += `      <Sensor id="${id}" ch="${ch}" mV="${xmlEsc(v[m])}" N="${xmlEsc(v[n])}"/>\n`;
+    if (hasImu && v[ix("ax_g")] !== "") x += `      <IMU${at(v, ["ax_g", "ay_g", "az_g", "gx_dps", "gy_dps", "gz_dps", "apk_g"])}/>\n`;
+    return x + "    </Sample>\n";
+  };
+  const head = `<?xml version="1.0" encoding="UTF-8"?>\n<InsoleRecording app="Insole Force Monitor" file="${xmlEsc(xmlName(info.name || "insole"))}"` +
+    ` started="${xmlEsc(info.startedAt || "")}" rows="${info.rows || 0}" duration_s="${(info.dur || 0).toFixed(1)}" feet="${xmlEsc(info.feet || "")}">\n` +
+    `  <Meta>\n${(info.meta || "").split("\n").filter(Boolean).map(l => `    <Line>${xmlEsc(l)}</Line>\n`).join("")}  </Meta>\n` +
+    `  <Units time="ms" voltage="mV" force="N" position="mm" accel="g" gyro="deg/s"` +
+    ` positionNote="COP origin = middle of the insole; X + = right side of the drawing, Y + = toward the toes (recordings made before 2026-11-12 use the outline corner)"/>\n` +
+    `  <Sites>\n${SITES.map(s => `    <Site id="${s.id}" ch="${s.ch}" left_x_mm="${s.L[0]}" left_y_mm="${s.L[1]}" right_x_mm="${s.R[0]}" right_y_mm="${s.R[1]}"/>\n`).join("")}  </Sites>\n  <Samples>\n`;
+  const parts = [head];
+  for (const text of texts) {
+    let out = "";
+    for (const line of text.split("\n")) if (line) out += rowXml(line);
+    parts.push(out);
+  }
+  parts.push("  </Samples>\n</InsoleRecording>\n");
+  return new Blob(parts, { type: "application/xml" });
+}
+// ---------- research export: <ID>/<ID>_insole_L.csv, <ID>_metadata.json, <ID>_events.csv (+ R when recorded) ----------
+const COP_HELP = {
+  cop_coordinate_frame: "insole_center_mm",
+  cop_origin_definition: `Middle of the insole outline bounding box (${OUTLINE_W} x ${OUTLINE_L} mm): ${COP_CX} mm from the outline's left edge and ${COP_CY} mm from its heel end. ` +
+    "This is the origin the app itself uses (centred origin, in use since app 1.4 on 2026-11-12). CSV files recorded before that used the CAD corner origin instead.",
+  cop_x_axis_definition: "Mediolateral (ML), along the horizontal axis of the insole drawing",
+  cop_y_axis_definition: "Anteroposterior (AP), along the insole length",
+  cop_x_positive_direction: "Toward the right of the insole drawing (top view, toes up): MEDIAL (big-toe side) for the LEFT insole; for the RIGHT insole, which is the mirror image, LATERAL",
+  cop_y_positive_direction: "Heel -> toe",
+  coordinate_unit: "mm",
+  canonical_cad_frame: { name: "insole_cad_corner_mm", origin: "Bottom-left corner of the insole outline bounding box (heel end, left edge, drawing viewed from above with toes up)",
+    x_axis: "ML, + toward the right of the drawing", y_axis: "AP, + heel -> toe", unit: "mm" },
+  transform_app_to_cad_3x3: [[1, 0, COP_CX], [0, 1, COP_CY], [0, 0, 1]],
+  transform_note: "[x_cad, y_cad, 1]^T = M x [COPx_mm, COPy_mm, 1]^T. The sensor positions in metadata are given in both frames.",
+  cop_formula: "COP = sum(r_i * N_i) / sum(N_i) over the 7 sensors, N_i = calibrated force of sensor i (S*_N, after tare and clamping at 0 N), r_i = sensor position",
+  cop_valid_rule: `COPx_mm / COPy_mm are left blank when Fz_N <= ${10} N (no contact); they are never written as (0, 0)`,
+};
+const STUDY_FALLBACK = name => ({ participant_id: null, run_id: null, recording_id: name.replace(/\.csv$/i, ""), condition: null, treadmill_speed_kmh: null, body_mass_kg: null });
+const csvEsc = s => { s = String(s); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const feetOf = info => ["L", "R"].filter(k => (info.feet || "").includes(k));
+
+async function researchCsvParts(info, texts, foot) {          // rows of one foot, lines kept as recorded
+  const head = (info.metaStart || info.meta || "").replace(/[^\x00-\x7F]/g, "-") + "\n";     // ASCII only: safe for open() / read_csv on any locale
+  const rid = (info.rj && info.rj.study ? info.rj.study : STUDY_FALLBACK(info.name)).recording_id;
+  const demo = info.rj && Object.values(info.rj.cfg0 || {}).some(c => c.transport === "Demo");
+  const out = [`# research export schema ${SCHEMA_VERSION}, recording ${rid}, foot ${foot}, one row = one sample of this insole as received; configuration in ${rid}_metadata.json, events in ${rid}_events.csv\n`,
+    ...(demo ? ["# DEMO: simulated data, NOT a hardware recording\n"] : []), head, (info.head || CSV_HEAD) + "\n"];
+  let rows = 0;
+  for (const text of texts) {
+    let o = "";
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      const c = line.indexOf(",");
+      if (line.charAt(c + 1) === foot) { o += line + "\n"; rows++; }
+    }
+    out.push(o);
+  }
+  return { parts: out, rows };
+}
+function researchEventsCsv(info) {
+  const ev = info.rj ? info.rj.events : [];
+  const lines = ["event_type,dev_ms,host_utc_ms,sample_seq,details"];
+  for (const e of ev) lines.push([e.event_type, e.dev_ms === "" ? "" : (+e.dev_ms).toFixed(3), (+e.host_utc_ms).toFixed(3), e.sample_seq, csvEsc(JSON.stringify(e.details))].join(","));
+  if (info.rj && info.rj.events_dropped) lines.push(`EVENTS_TRUNCATED,,,,${csvEsc(JSON.stringify({ not_logged: info.rj.events_dropped }))}`);
+  return lines.join("\n") + "\n";
+}
+const TS_DEF = {
+  mcu_us: ["MCU micros() read just before the 7-channel ADC burst of the sample (acquisition start); dev_us = unwrapped uint32 count, dev_ms = dev_us / 1000", "us"],
+  mcu_ms: ["MCU millis() read after the sample's ADC burst (frame end), 1 ms resolution (firmware v1.0-v1.3 over USB)", "ms"],
+  seq_est: ["NONE measured: BLE v1 sends only a 16-bit counter. dev_ms is left blank; time can only be estimated as sample_seq x 20 ms", null],
+  none: ["none (Demo or simulated source)", null],
+};
+function researchMetadata(info, files) {
+  const rj = info.rj || { study: STUDY_FALLBACK(info.name), cfg0: {}, stats: {}, timing: {}, errors: {}, events: [], events_dropped: 0, start_utc_ms: Date.parse(info.startedAt), stop_utc_ms: null, app_version: null };
+  const feet = feetOf(info), per = {};
+  for (const k of feet) {
+    const c = rj.cfg0[k] || null, st = rj.stats[k] || null, fw = c && c.firmware || null, ts = st ? st.time_src : null;
+    const cycles = st && st.first_seq != null ? st.last_seq - st.first_seq : st ? st.samples - 1 : null;
+    const durS = st && st.dev_first_ms != null ? (st.dev_last_ms - st.dev_first_ms) / 1000 : null;
+    per[k] = {
+      transport: c ? c.transport : null, device_id: c ? c.device_id : null,
+      firmware: fw, nominal_sampling_hz: c ? (c.nominal_hz || (fw && fw.hz) || null) : null,
+      device_time_source: ts ? TS_DEF[ts][0] : null, device_time_unit: ts ? TS_DEF[ts][1] : null,
+      samples: st ? st.samples : null, first_sample_seq: st ? st.first_seq : null, last_sample_seq: st ? st.last_seq : null,
+      missing_samples: st ? st.missing : null, duplicate_samples: st ? st.duplicates : null, out_of_order_samples: st ? st.out_of_order : null, mcu_restarts: st ? st.mcu_restarts : null,
+      device_duration_s: durS, measured_rate_hz: durS > 0 && cycles > 0 ? cycles / durS : null,
+      mcu_timing_last: rj.timing[k] || null, stream_errors: rj.errors[k] || {},
+      calibration_model: c ? c.model : null, hysteresis_enabled: c ? c.hysteresis_enabled : null, RF_ohm: RF,
+      global_force_scaling_enabled: c ? c.bw_scale_enabled : null, global_force_scaling_coefficient: c ? c.bw_factor : null,
+      imu_mounting: c ? c.mount : null,
+      sensors: SITES.map((s, i) => {
+        const p = s[k], cc = c ? c.cal[i] : null;
+        return { sensor_id: s.id, channel: s.ch, adc_gpio: i, position_cop_frame_mm: [+(p[0] - COP_CX).toFixed(3), +(p[1] - COP_CY).toFixed(3)], position_cad_mm: [p[0], p[1]],
+          calibration: !c ? null : { model: c.model, formula: c.model === "linear"
+              ? "F = m_N_per_mV * (mV - baseline_mV) if mV > baseline_mV + dead_band_mV else 0;  N = max(0, F - tare_N)"
+              : "G_uS = (mV/baseline_mV - 1)/RF*1e6 if mV > baseline_mV + dead_band_mV else 0;  F = aU*G^bU (loading) / unloading branch (hysteresis) or a*G^b (single curve);  N = max(0, F - tare_N)",
+            m_N_per_mV: cc.m, baseline_mV: c.base_mV[i], tare_N: c.tare_N[i], tare_G_uS: c.tare_G_uS[i], dead_band_mV: DEAD_MV,
+            curve_model_parameters: { aU: cc.aU, bU: cc.bU, aD: cc.aD, bD: cc.bD, a: cc.a, b: cc.b, test_base_mV: cc.base, in_use: c.model === "curve" },
+            saturation_mV: SAT_MV } };
+      }),
+    };
+  }
+  const kinds = new Set(feet.map(k => per[k].transport).filter(Boolean));
+  const hardware = kinds.size ? (kinds.has("Demo") ? (kinds.size === 1 ? "demo" : "mixed") : "hardware") : null;
+  const first = per[feet[0]] || {}, study = rj.study;
+  return {
+    schema_version: SCHEMA_VERSION, export_version: EXPORT_VERSION, recording_id: study.recording_id, participant_id: study.participant_id, run_id: study.run_id,
+    foot: feet.join("") || null, condition: study.condition, treadmill_speed_kmh: study.treadmill_speed_kmh, body_mass_kg: study.body_mass_kg,
+    data_source: hardware, is_hardware_recording: hardware === "hardware",
+    device_id: feet.length > 1 ? Object.fromEntries(feet.map(k => [k, per[k].device_id])) : first.device_id || null,
+    transport: feet.length > 1 ? Object.fromEntries(feet.map(k => [k, per[k].transport])) : first.transport || null,
+    app_version: rj.app_version || APP_VERSION, firmware_version: feet.length > 1 ? Object.fromEntries(feet.map(k => [k, per[k].firmware ? per[k].firmware.version : null])) : (first.firmware ? first.firmware.version : null),
+    source_revision: SOURCE_REV, calibration_source: "Final Test Results.xlsx, sheet PVC (linear); S1-S7test results.xlsx (curve model)",
+    nominal_sampling_hz: feet.length > 1 ? Object.fromEntries(feet.map(k => [k, per[k].nominal_sampling_hz])) : first.nominal_sampling_hz || null,
+    device_time_source: feet.length > 1 ? Object.fromEntries(feet.map(k => [k, per[k].device_time_source])) : first.device_time_source || null,
+    device_time_unit: feet.length > 1 ? Object.fromEntries(feet.map(k => [k, per[k].device_time_unit])) : first.device_time_unit || null,
+    sample_sequence_definition: "sample_seq = uint32 counter kept by the MCU, +1 per acquisition cycle (first sample after boot = 0, wraps after 2^32 samples = 248 days at 200 Hz); " +
+      "a jump > 1 = missing samples, 0 = duplicate, backwards = out of order or MCU restart. Rows are written in arrival order. missing_samples adds (jump - 1) for every forward jump " +
+      "relative to the highest sequence number received so far; a late (out-of-order) sample is counted as out_of_order and does not reduce missing_samples. " +
+      "BLE v1 (firmware <= 1.3): the 16-bit counter unwrapped by the app.",
+    time_columns: { t_ms: "host time since recording start, mapped from the device clock when one exists (app internal timebase, 3 decimals)",
+      dev_ms: "device time in ms (blank when no device time exists)", dev_us: "device micros(), unwrapped (mcu_us only)",
+      host_rx_utc_ms: "host receive time, Unix UTC ms (USB: time the line was parsed; BLE v2: all 4 samples of a notification share it); for communication diagnostics, not the sampling clock",
+      time_src: "mcu_us | mcu_ms | seq_est | none" },
+    recording_start_utc: new Date(rj.start_utc_ms).toISOString(), recording_stop_utc: rj.stop_utc_ms ? new Date(rj.stop_utc_ms).toISOString() : null,
+    recovered_log: !info.done, rows_total: info.rows, files,
+    masks: { sensor_valid_mask: "bit i = 1 when sensor i delivered a finite mV > 0 (a disconnected pin cannot be detected by the hardware); bit0 S1, bit1 S4, bit2 S6, bit3 S11, bit4 S13, bit5 S10, bit6 S14",
+      saturation_mask: `bit i = 1 when mV >= ${SAT_MV} (ADC / amplifier limit, force is then a lower bound), same bit order` },
+    fz_definition: "Fz_N = sum of the 7 S*_N, unscaled (no area or body-weight scaling). Fz_BW_N = Fz_N x body-weight factor, blank when no factor was set",
+    negative_values_policy: "N = max(0, F - tare_N): negative forces are clamped to 0 N; mV is exported as received",
+    acquisition_note: "ADC: 12 bit, 11 dB attenuation, analogReadMilliVolts, 8 reads averaged per channel per sample (firmware OVERSAMPLE); no other filtering or resampling is applied in the app or in the export",
+    coordinates: COP_HELP, units: { mV: "mV", N: "N", Fz: "N", COP: "mm", accel: "g", gyro: "deg/s", apk: "g (peak |a - g| in the frame)" },
+    csv_columns: (info.head || CSV_HEAD).split(","),
+    feet: per,
+    configuration_policy: "Calibration, tare/baseline, mapping and CoP geometry are snapshotted at the foot's first recorded sample (feet[*].sensors). Any later change is listed in events (ZERO, TARE_CHANGE, CALIBRATION_CHANGE) with old and new values; the snapshot is never overwritten.",
+    event_counts: rj.events.reduce((a, e) => (a[e.event_type] = (a[e.event_type] || 0) + 1, a), {}), events_not_logged: rj.events_dropped || 0,
+  };
+}
+async function researchFiles(id, L) {                        // [{name, blob}]
+  const { info, texts } = await logParts(id, L);
+  const meta0 = researchMetadata(info, []);
+  const rid = meta0.recording_id, feet = feetOf(info), out = [];
+  for (const k of feet) {
+    const r = await researchCsvParts(info, texts, k);
+    if (r.rows) out.push({ name: `${rid}_insole_${k}.csv`, blob: new Blob(r.parts, { type: "text/csv" }) });
+  }
+  out.push({ name: `${rid}_events.csv`, blob: new Blob([researchEventsCsv(info)], { type: "text/csv" }) });
+  const meta = researchMetadata(info, out.map(f => f.name).concat(`${rid}_metadata.json`));
+  out.push({ name: `${rid}_metadata.json`, blob: new Blob([JSON.stringify(meta, null, 2) + "\n"], { type: "application/json" }) });
+  return { rid, demo: meta.data_source === "demo", files: out };
+}
+// minimal ZIP writer (stored, no compression, CRC-32), so the three files travel as one folder
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+async function makeZip(files) {                              // [{name, blob}] -> Blob
+  const enc = new TextEncoder(), parts = [], cen = [], d = new Date();
+  const dt = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), dd = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let off = 0;
+  for (const f of files) {
+    const data = new Uint8Array(await f.blob.arrayBuffer()), name = enc.encode(f.name), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, dt, true); lh.setUint16(12, dd, true); lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true);
+    lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, dt, true); ch.setUint16(14, dd, true); ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+    ch.setUint16(28, name.length, true); ch.setUint32(42, off, true);
+    parts.push(lh.buffer, name, data); cen.push(ch.buffer, name);
+    off += 30 + name.length + data.length;
+  }
+  const csize = cen.reduce((a, b) => a + (b.byteLength !== undefined ? b.byteLength : b.length), 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csize, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...cen, end.buffer], { type: "application/zip" });
+}
+async function researchZip(id, L) {                          // folder <ID>/ with all files, as <ID>.zip
+  const r = await researchFiles(id, L);
+  const blob = await makeZip(r.files.map(f => ({ name: `${r.rid}/${f.name}`, blob: f.blob })));
+  return { name: `${r.rid}${r.demo ? "_DEMO" : ""}.zip`, blob, files: r.files.map(f => f.name) };
 }
 async function logDelete(id) {
   await idb(["logs", "chunks"], "readwrite", t => {
@@ -1205,18 +1626,43 @@ async function logDelete(id) {
   });
 }
 
-const recBtn = document.getElementById("recBtn"), recInfo = document.getElementById("recInfo");
+const recBtn = document.getElementById("recBtn"), recInfo = document.getElementById("recInfo"), recXml = document.getElementById("recXml");
+const recZip = document.getElementById("recZip");
+try { recXml.checked = localStorage.getItem("insole_recXml") === "1"; recZip.checked = localStorage.getItem("insole_recZip") !== "0"; } catch (e) {}
+recXml.addEventListener("change", () => { try { localStorage.setItem("insole_recXml", recXml.checked ? "1" : "0"); } catch (e) {} });
+recZip.addEventListener("change", () => { try { localStorage.setItem("insole_recZip", recZip.checked ? "1" : "0"); } catch (e) {} });
+for (const id of ["inPid", "inRun", "inCond", "inSpeed"]) {                  // study fields: remembered in this browser
+  const inp = document.getElementById(id);
+  try { const v = localStorage.getItem("insole_" + id); if (v != null) inp.value = v; } catch (e) {}
+  inp.addEventListener("change", () => { try { localStorage.setItem("insole_" + id, inp.value); } catch (e) {} });
+}
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 setInterval(() => {
   if (!recording) return;
-  const L = recording.log;
-  recInfo.textContent = `${mmss((performance.now() - recording.t0) / 1000)} · ${L.rows.toLocaleString()} rows · ` +
-    (L.mem ? "⚠ in memory only" : `saved ${L.saved.toLocaleString()}`);
+  const L = recording.log, st = recording.rj.stats;
+  const src = ["L", "R"].filter(k => recording.sides[k]).map(k => `${k}:${recording.sides[k].kind}`).join(" ");
+  const miss = Object.values(st).reduce((a, s) => a + s.missing, 0), dups = Object.values(st).reduce((a, s) => a + s.duplicates + s.out_of_order, 0);
+  const demo = Object.values(recording.sides).some(s => s.kind === "Demo");
+  recInfo.textContent = `${recording.rj.study.recording_id} · ${demo ? "DEMO (simulated, not hardware) " : ""}${src} · ${mmss((performance.now() - recording.t0) / 1000)} · ${L.rows.toLocaleString()} samples · ` +
+    `missing ${miss}${dups ? `, dup/ooo ${dups}` : ""} · ` + (L.mem ? "⚠ in memory only" : `saved ${L.saved.toLocaleString()}`);
 }, 1000);
 recBtn.onclick = async () => {
   if (!recording) {
+    const study = studyNow();
+    try {                                              // same Recording ID already saved in this browser?
+      const dup = (await listLogs()).find(l => l.rj && l.rj.study && l.rj.study.recording_id === study.recording_id);
+      if (dup && !confirm(`Recording ${study.recording_id} already exists in Logs (${dup.name}). Record again with the same ID? ` +
+        `Press Cancel to change the Participant / Run first.`)) return;
+    } catch (e) {}
     recording = { t0: performance.now(), startedAt: new Date(), sides: {} };
+    recording.rj = { schema_version: SCHEMA_VERSION, study, start_utc_ms: recording.startedAt.getTime(), stop_utc_ms: null, cfg0: {}, stats: {}, timing: {},
+      errors: {}, events: [], events_dropped: 0, app_version: APP_VERSION };
+    for (const k of ["L", "R"]) if (sides[k].conn) {                  // configuration of every connected foot, frozen now
+      recording.rj.cfg0[k] = snapSide(sides[k]);
+      if (sides[k].timing) recording.rj.timing[k] = sides[k].timing;
+    }
     recording.log = logStart(recording);
+    recEvent("RECORD_START", null, { recording_id: study.recording_id, sources: Object.fromEntries(["L", "R"].filter(k => sides[k].conn).map(k => [k, sides[k].conn.kind])) });
     recBtn.setAttribute("aria-pressed", "true");
     recBtn.textContent = "■ Stop & save";
     recInfo.textContent = "0:00 · 0 rows";
@@ -1224,8 +1670,11 @@ recBtn.onclick = async () => {
     updateWakeLock();
     return;
   }
-  const rec = recording; recording = null;
+  const rec = recording;
   const L = rec.log;
+  recEvent("RECORD_STOP", null, { rows: L.rows });
+  rec.rj.stop_utc_ms = nowUtc();
+  recording = null;
   clearInterval(L.timer);
   recBtn.setAttribute("aria-pressed", "false");
   recBtn.textContent = "● Record";
@@ -1237,9 +1686,21 @@ recBtn.onclick = async () => {
   }
   L.meta = csvMeta(); L.done = true;
   await logFlush(L);
-  const blob = await logBlob(L.id, L);
-  downloadBlob(L.name, blob);
-  recInfo.textContent = `Saved ${L.name} (${L.rows.toLocaleString()} rows) · also kept under Logs`;
+  const notes = [];
+  try { downloadBlob(L.name, await logBlob(L.id, L)); }
+  catch (e) { notes.push(`CSV failed: ${e.message}`); alert("Could not save the CSV: " + e.message + "\nThe recording is still under Logs."); }
+  if (recXml.checked) {
+    try { downloadBlob(xmlName(L.name), await logXmlBlob(L.id, L)); notes.push("XML"); }
+    catch (e) { notes.push(`XML failed: ${e.message}`); }
+  }
+  if (recZip.checked) {
+    try { const z = await researchZip(L.id, L); downloadBlob(z.name, z.blob); notes.push(`research ZIP ${z.name} (${z.files.join(", ")})`); }
+    catch (e) { notes.push(`research ZIP FAILED: ${e.message}`); alert("Research export failed: " + e.message + "\nThe recording is kept under Logs; export it from there."); }
+  }
+  recInfo.textContent = `Saved ${L.name} (${L.rows.toLocaleString()} rows)${notes.length ? " + " + notes.join(" + ") : ""} · also kept under Logs`;
+  const m = /^(.*?)(\d+)$/.exec(rec.rj.study.run_id);               // next run number, so the next recording gets a new ID
+  if (m) studyInput("inRun").value = m[1] + String(+m[2] + 1).padStart(m[2].length, "0");
+  studyInput("inRun").dispatchEvent(new Event("change"));
   showResults(rec, false);
   refreshLogCount();
 };
@@ -1288,7 +1749,7 @@ async function renderLogs() {
   box.innerHTML = `<div class="scroll"><table><thead><tr><th>File</th><th>Feet</th><th>Length</th><th>Rows</th><th>Size</th><th></th></tr></thead><tbody>${
     all.map(l => `<tr data-id="${l.id}"><td>${l.name}${l.id === open ? ' <span class="pill on">recording</span>' : !l.done ? ' <span class="pill warn" title="The page closed before Stop; everything up to the last second is kept">recovered</span>' : ""}</td>
       <td>${l.feet || "—"}</td><td>${mmss(l.dur || 0)}</td><td>${(l.rows || 0).toLocaleString()}</td><td>${kb(l.bytes || 0)}</td>
-      <td class="logact"><button data-a="dl">Download</button>${canShare ? '<button data-a="share">Share</button>' : ""}${l.id === open ? "" : '<button data-a="del">Delete</button>'}</td></tr>`).join("")
+      <td class="logact"><button data-a="dl">Download</button><button data-a="zip" title="Research export: ZIP with <ID>/ insole CSV per foot, metadata.json, events.csv">ZIP</button><button data-a="files" title="The same research files as separate downloads">3 files</button><button data-a="xml" title="Same raw samples as an XML file">XML</button>${canShare ? '<button data-a="share">Share</button>' : ""}${l.id === open ? "" : '<button data-a="del">Delete</button>'}</td></tr>`).join("")
   }</tbody></table></div>`;
   box.querySelectorAll("button[data-a]").forEach(b => b.onclick = async () => {
     const id = +b.closest("tr").dataset.id, l = all.find(x => x.id === id);
@@ -1299,6 +1760,9 @@ async function renderLogs() {
         await logDelete(id); renderLogs(); refreshLogCount(); return;
       }
       if (live) await logFlush(live);
+      if (b.dataset.a === "xml") { downloadBlob(xmlName(l.name), await logXmlBlob(id, live)); return; }
+      if (b.dataset.a === "zip") { const z = await researchZip(id, live); downloadBlob(z.name, z.blob); return; }
+      if (b.dataset.a === "files") { for (const f of (await researchFiles(id, live)).files) { downloadBlob(f.name, f.blob); await new Promise(r => setTimeout(r, 300)); } return; }
       const blob = await logBlob(id, live);
       if (b.dataset.a === "share") await navigator.share({ files: [new File([blob], l.name, { type: "text/csv" })], title: l.name });
       else downloadBlob(l.name, blob);
@@ -1395,6 +1859,12 @@ function analyzeStep(t, N, F, xy, c) {
     if (cx.length) path += Math.hypot(x - cx[cx.length - 1], y - cy[cy.length - 1]);
     ct.push(pct(i)); cx.push(x); cy.push(y);
   }
+  // COP X / Y relative to the middle of the insole: at heel strike (first loaded sample), toe-off (last), mean and range over stance
+  const cxc = cx.map(v => v - COP_CX), cyc = cy.map(v => v - COP_CY), nc = cxc.length;
+  const cop = nc ? {
+    xIC: cxc[0], xTO: cxc[nc - 1], xMean: mean(cxc), xMin: Math.min(...cxc), xMax: Math.max(...cxc),
+    yIC: cyc[0], yTO: cyc[nc - 1], yMean: mean(cyc), yMin: Math.min(...cyc), yMax: Math.max(...cyc),
+  } : {};
   // force-time curve normalised to 0-100 % stance
   const tt = [], fv = [];
   for (let i = s; i <= Math.min(e + 1, n - 1); i++) { tt.push(pct(i)); fv.push(F[i]); }
@@ -1406,7 +1876,7 @@ function analyzeStep(t, N, F, xy, c) {
     area: maxLoaded * AREA_MM2 / 100,
     apRange: ct.length ? Math.max(...cy) - Math.min(...cy) : NaN,
     mlRange: ct.length ? Math.max(...cx) - Math.min(...cx) : NaN,
-    copVel: path / (stance / 1000),
+    copVel: path / (stance / 1000), ...cop,
     curve: PCT.map(p => interp(tt, fv, p)),
     copX: ct.length > 1 ? PCT.map(p => interp(ct, cx, p)) : null,
     copY: ct.length > 1 ? PCT.map(p => interp(ct, cy, p)) : null,
@@ -1438,7 +1908,18 @@ function analyzeFoot(key, buf) {
     }
     steps.push(st);
   });
-  return { key, t0: t[0], t1: t[t.length - 1], contacts, steps, partial, scale: sc, imu: im };
+  // COP X / Y over the whole recording (origin = middle of the insole); null while the foot is off the ground
+  const cs = { t: [], x: [], y: [] };
+  for (let i = 0; i < t.length; i++) {
+    let x = null, y = null;
+    if (F[i] > GAIT.OFF) {
+      let sx = 0, sy = 0, w = 0;
+      for (let k = 0; k < 7; k++) { sx += xy[k][0] * N[i][k]; sy += xy[k][1] * N[i][k]; w += N[i][k]; }
+      if (w > 0) { x = sx / w - COP_CX; y = sy / w - COP_CY; }
+    }
+    cs.t.push(t[i]); cs.x.push(x); cs.y.push(y);
+  }
+  return { key, t0: t[0], t1: t[t.length - 1], contacts, steps, partial, scale: sc, imu: im, copSeries: cs };
 }
 
 // ---------- IMU analysis of a recording (foot-mounted BMI270, one frame per FSR sample) ----------
@@ -1693,6 +2174,65 @@ function gaitStack(steps, color) {
     ${g}<text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">% gait cycle (heel strike → next heel strike)</text></svg>`;
 }
 
+// Shared by the two COP charts: stacked panels with a common x axis. panel = {label, lo, hi, draw(X, Y) -> svg string}.
+function copPanels(panels, xTicks, xLabel, xOf, aria) {
+  const W = 340, L = 46, R = 10, T = 10, PH = 80, GAP = 12, B = 30, bot = T + panels.length * (PH + GAP) - GAP, H = bot + B;
+  const X = v => L + xOf(v) * (W - L - R);
+  let g = "";
+  panels.forEach((P, k) => {
+    const y0 = T + k * (PH + GAP), Y = v => y0 + (P.hi - Math.max(P.lo, Math.min(P.hi, v))) / (P.hi - P.lo) * PH;
+    const zero = P.lo < 0 && P.hi > 0;                      // origin line (middle of the insole) when inside the range
+    for (const v of zero ? [P.lo, P.hi] : [P.lo, (P.lo + P.hi) / 2, P.hi])
+      g += `<line class="axis" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${v.toFixed(0)}</text>`;
+    if (zero) g += `<line class="axis" x1="${L}" x2="${W - R}" y1="${Y(0)}" y2="${Y(0)}" stroke-dasharray="2 2"/><text x="${L - 4}" y="${Y(0) + 3}" text-anchor="end">0</text>`;
+    g += P.draw(X, Y) + `<text x="10" y="${y0 + PH / 2}" text-anchor="middle" transform="rotate(-90 10 ${y0 + PH / 2})">${P.label}</text>`;
+  });
+  for (const v of xTicks) g += `<text x="${X(v)}" y="${bot + 13}" text-anchor="middle">${+v.toFixed(1)}</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${aria}">${g}
+    <text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">${xLabel}</text></svg>`;
+}
+function copRange(vals) {
+  const v = finite(vals);
+  if (!v.length) return [-1, 1];
+  let lo = Math.min(...v), hi = Math.max(...v);
+  const pad = Math.max(2, (hi - lo) * 0.12);
+  return [Math.floor(lo - pad), Math.ceil(hi + pad)];
+}
+
+// COP X and Y over 0-100 % stance, mean ± SD across steps (origin = middle of the insole).
+function copStanceChart(steps, color) {
+  const w = steps.filter(s => s.copX);
+  if (!w.length) return "";
+  const mk = (label, key, c0) => {
+    const curves = w.map(s => s[key].map(v => v - c0));
+    const m = PCT.map(i => mean(curves.map(c => c[i]))), d = PCT.map(i => sdev(curves.map(c => c[i])) || 0);
+    const [lo, hi] = copRange(m.flatMap((v, i) => [v - d[i], v + d[i]]));
+    return { label, lo, hi, draw: (X, Y) => {
+      const up = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] + d[i]).toFixed(1)}`), dn = PCT.map(i => `${X(i).toFixed(1)},${Y(m[i] - d[i]).toFixed(1)}`).reverse();
+      return `<polygon points="${up.join(" ")} ${dn.join(" ")}" fill="${color}" opacity=".18"/>` +
+        `<path d="${PCT.map(i => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(m[i]).toFixed(1)}`).join("")}" fill="none" stroke="${color}" stroke-width="2"/>`;
+    } };
+  };
+  return copPanels([mk("COP X mm", "copX", COP_CX), mk("COP Y mm", "copY", COP_CY)], [0, 25, 50, 75, 100],
+    "% stance (COP X: transverse, COP Y: heel → toe; 0 = middle of insole)", p => p / 100, "COP X and Y over stance, mean and SD");
+}
+
+// COP X and Y over the whole recording; the line breaks while the foot is in the air.
+function copTimeChart(cs, t0, color) {
+  const n = cs.t.length, stepI = Math.max(1, Math.ceil(n / 1200));
+  const ts = [], xs = [], ys = [];
+  for (let i = 0; i < n; i += stepI) { ts.push((cs.t[i] - t0) / 1000); xs.push(cs.x[i]); ys.push(cs.y[i]); }
+  const tMin = ts[0], tMax = ts[ts.length - 1], span = Math.max(0.001, tMax - tMin);
+  if (!finite(xs).length) return "";
+  const mk = (label, v) => { const [lo, hi] = copRange(v); return { label, lo, hi, draw: (X, Y) => {
+    let d = "", pen = false;
+    v.forEach((val, i) => { if (val == null) { pen = false; return; } d += `${pen ? "L" : "M"}${X(ts[i]).toFixed(1)},${Y(val).toFixed(1)}`; pen = true; });
+    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  } }; };
+  const ticks = Array.from({ length: 6 }, (_, i) => tMin + span * i / 5);
+  return copPanels([mk("COP X mm", xs), mk("COP Y mm", ys)], ticks, "time s (gaps = foot in the air)", v => (v - tMin) / span, "COP X and Y over the recording");
+}
+
 function insoleResultSVG(key, peakN, peakKPa, copX, copY, color) {
   const pad = 6;
   let s = `<svg class="insole" viewBox="${-pad} ${-pad} ${OUTLINE_W + 2 * pad} ${OUTLINE_L + 2 * pad}" role="img" aria-label="Peak pressure and mean COP path">
@@ -1733,7 +2273,9 @@ function footHTML(key, f, S) {
   const stepRows = st.map((s, i) => `<tr><td>${i + 1}</td><td>${((s.ic - S.t0) / 1000).toFixed(2)}</td><td>${s.stance.toFixed(0)}</td>
     <td>${one(s.swing)}</td><td>${one(s.stride)}</td><td class="l">${s.strike}</td><td>${one(s.ffPct)}</td><td>${one(s.hoPct)}</td>
     <td>${s.p1.toFixed(0)}</td><td>${s.valley.toFixed(0)}</td><td>${s.p2.toFixed(0)}</td><td>${s.imp.toFixed(1)}</td>
-    <td>${Math.max(...s.peakKPa).toFixed(0)}</td><td>${one(s.apRange)}</td><td>${one(s.shock, 2)}</td><td>${one(s.imuStride, 2)}</td>
+    <td>${Math.max(...s.peakKPa).toFixed(0)}</td><td>${one(s.apRange)}</td>
+    <td>${one(s.xIC, 1)}</td><td>${one(s.xMean, 1)}</td><td>${one(s.xTO, 1)}</td><td>${one(s.yIC, 1)}</td><td>${one(s.yMean, 1)}</td><td>${one(s.yTO, 1)}</td>
+    <td>${one(s.shock, 2)}</td><td>${one(s.imuStride, 2)}</td>
     <td>${one(s.strikeAng, 1)}</td><td>${one(s.toAng, 1)}</td><td>${one(s.evPeak, 1)}</td><td>${one(s.fpa, 1)}</td></tr>`).join("");
   const kgN = Number.isFinite(S.mass) ? S.mass * G0 : NaN;
   const bwps = a => { a = finite(a); return Number.isFinite(kgN) && a.length ? ` (${(mean(a) / kgN).toFixed(1)} BW/s)` : ""; };
@@ -1795,6 +2337,26 @@ function footHTML(key, f, S) {
       ["COP excursion AP / ML", `${fmt(col("apRange"))} / ${fmt(col("mlRange"))} mm`],
       ["COP mean velocity", fmt(col("copVel")) + " mm/s"],
     ])}
+    <h4>Centre of pressure (origin = middle of the insole)</h4>
+    <div class="res-row">
+      <div>${copStanceChart(st, color) || '<div class="empty">No COP curves.</div>'}
+        <div class="res-note" style="margin:4px 0 0">Mean ± SD over % stance</div></div>
+      <div></div>
+    </div>
+    ${rows("COP X, transverse (mm, + = right side of the drawing)", [
+      ["At heel strike", fmt(col("xIC"), 1)],
+      ["Mean over stance", fmt(col("xMean"), 1)],
+      ["At toe-off", fmt(col("xTO"), 1)],
+      ["Minimum / maximum", `${fmt(col("xMin"), 1)} / ${fmt(col("xMax"), 1)}`],
+    ])}
+    ${rows("COP Y, heel → toe (mm, + = toward the toes)", [
+      ["At heel strike", fmt(col("yIC"), 1)],
+      ["Mean over stance", fmt(col("yMean"), 1)],
+      ["At toe-off", fmt(col("yTO"), 1)],
+      ["Minimum / maximum", `${fmt(col("yMin"), 1)} / ${fmt(col("yMax"), 1)}`],
+    ])}
+    <h4>COP X, Y over the recording</h4>
+    ${copTimeChart(f.copSeries, S.t0, color) || '<div class="empty">No loaded samples.</div>'}
     ${imuBlock}
     <h4>Per sensor (mean of steps)</h4>
     <table><thead><tr><th>Site</th><th>Peak N</th><th>Peak kPa</th><th>PTI kPa·s</th></tr></thead><tbody>
@@ -1803,6 +2365,7 @@ function footHTML(key, f, S) {
     <details><summary>Per-step table (${st.length})</summary><div class="scroll"><table>
       <thead><tr><th>#</th><th>IC s</th><th>Stance ms</th><th>Swing ms</th><th>Stride ms</th><th class="l">Strike</th><th>FF %</th><th>HO %</th>
       <th>Peak1 N</th><th>Valley N</th><th>Peak2 N</th><th>Impulse N·s</th><th>Max kPa</th><th>COP AP mm</th>
+      <th>COP X IC mm</th><th>COP X mean mm</th><th>COP X TO mm</th><th>COP Y IC mm</th><th>COP Y mean mm</th><th>COP Y TO mm</th>
       <th>Shock g</th><th>Stride m</th><th>Strike °</th><th>TO °</th><th>Ever pk °</th><th>FPA °</th></tr></thead>
       <tbody>${stepRows}</tbody></table></div></details>
   </div>`;
@@ -1838,7 +2401,8 @@ function showResults(rec, ongoing) {
         ? `, multiplied by each foot's body-weight factor (BW scale on: L ${one(bwScale("L"), 2)} · R ${one(bwScale("R"), 2)}; factor = body weight / Σ Fᵢ standing on one foot, so it is exact at 1 BW and approximate elsewhere)`
         : ` (no area or body-weight scaling): it counts only the load on the sensors, so it reads below the true foot load`}. Contact: vGRF &gt; ${GAIT.ON} N
       (start/end at ${GAIT.OFF} N). Foot flat: rearfoot (S1+S4) and forefoot (S13+S10+S14) both &gt; ${GAIT.REG} N. Heel-off: rearfoot back below ${GAIT.REG} N.
-      Pressure = sensor force / 5.07 cm² active area. COP in mm, x = transverse from the insole's left edge, y = heel → toe.
+      Pressure = sensor force / 5.07 cm² active area. COP in mm with the origin at the middle of the insole outline: X = transverse
+      (+ = right side of the drawing, for both feet), Y = heel → toe (+ = toward the toes).
       IMU (BMI270, 50 Hz frames): stride by zero-velocity-update integration (velocity reset in every foot-flat phase, swing drift removed
       linearly); angles from the integrated gyro with gravity tilt correction while the foot is flat. Toe axis ${settings.mount.fwd}, up axis ${settings.mount.up}
       (Calibration → IMU mounting). Not yet validated against a reference system.</div>`;
@@ -1851,7 +2415,9 @@ function showResults(rec, ongoing) {
 function exportSteps(S) {
   const head = ["foot", "step", "ic_s", "toeoff_s", "stance_ms", "swing_ms", "stride_ms", "stance_pct", "step_time_ms", "double_support_pct",
     "strike", "footflat_pct", "heeloff_pct", "peak1_N", "valley_N", "peak2_N", "loading_rate_Nps", "impulse_Ns", "contact_area_cm2",
-    "cop_ap_mm", "cop_ml_mm", "cop_vel_mmps", ...SITES.map(s => s.id + "_peak_kPa"), ...SITES.map(s => s.id + "_PTI_kPas"),
+    "cop_ap_mm", "cop_ml_mm", "cop_vel_mmps",
+    "cop_x_ic_mm", "cop_x_mean_mm", "cop_x_to_mm", "cop_x_min_mm", "cop_x_max_mm", "cop_y_ic_mm", "cop_y_mean_mm", "cop_y_to_mm", "cop_y_min_mm", "cop_y_max_mm",
+    ...SITES.map(s => s.id + "_peak_kPa"), ...SITES.map(s => s.id + "_PTI_kPas"),
     "bw_scale", "shock_g", "imu_stride_m", "imu_speed_mps", "clearance_cm", "swing_pitch_rate_dps", "strike_angle_deg", "toeoff_angle_deg",
     "ever_ic_deg", "ever_peak_deg", "ever_exc_deg", "fpa_deg"];
   const lines = [`# speed_mps=${one(S.speed, 3)}, cadence=${one(S.cad, 1)}, step_len_m=${one(S.stepLen, 3)}, stride_len_m=${one(S.strideLen, 3)}, ${S.method}`, head.join(",")];
@@ -1862,6 +2428,8 @@ function exportSteps(S) {
       s.stance.toFixed(0), one(s.swing), one(s.stride), one(s.stancePct, 1), one(s.stepTime), one(s.dsPct, 1), s.strike,
       one(s.ffPct, 1), one(s.hoPct, 1), s.p1.toFixed(1), s.valley.toFixed(1), s.p2.toFixed(1), s.lr.toFixed(0), s.imp.toFixed(2),
       s.area.toFixed(1), one(s.apRange, 1), one(s.mlRange, 1), one(s.copVel, 0),
+      one(s.xIC, 2), one(s.xMean, 2), one(s.xTO, 2), one(s.xMin, 2), one(s.xMax, 2),
+      one(s.yIC, 2), one(s.yMean, 2), one(s.yTO, 2), one(s.yMin, 2), one(s.yMax, 2),
       ...s.peakKPa.map(v => v.toFixed(0)), ...s.pti.map(v => v.toFixed(1)), f.scale.toFixed(4), one(s.shock, 3), one(s.imuStride, 3),
       one(s.imuSpeed, 3), one(s.clear, 1), one(s.swingW, 0), one(s.strikeAng, 1), one(s.toAng, 1), one(s.evIC, 1), one(s.evPeak, 1),
       one(s.evExc, 1), one(s.fpa, 1)].map(v => v === "—" ? "" : v).join(",")));
@@ -1882,26 +2450,28 @@ for (const id of ["inDist", "inHeight", "inMass"]) {
 // ---------- calibration dialog ----------
 const dlg = document.getElementById("calDlg");
 let calDraft = null, calNotes = { L: DEFAULT_CAL.map(c => c.note), R: DEFAULT_CAL.map(c => c.note) };
-const copyCal = src => ({ hyst: src.hyst, L: src.L.map(pickCal), R: src.R.map(pickCal) });
+const copyCal = src => ({ model: src.model, hyst: src.hyst, L: src.L.map(pickCal), R: src.R.map(pickCal) });
 function fillCalGrid(src) {
   calDraft = copyCal(src);
   const grid = document.getElementById("calGrid");
   document.getElementById("calHyst").checked = calDraft.hyst;
-  grid.className = "calgrid " + (calDraft.hyst ? "hyst-on" : "hyst-off");
+  document.getElementById("calModel").value = calDraft.model;
+  grid.className = "calgrid " + (calDraft.hyst ? "hyst-on" : "hyst-off") + (calDraft.model === "linear" ? " lin-on" : " lin-off");
   grid.innerHTML = "";
   const inp = (key, i, f, v) => `<input data-k="${key}" data-i="${i}" data-f="${f}" type="number" step="0.0001" value="${+v.toFixed(5)}">`;
   for (const key of ["L", "R"]) {
     const box = document.createElement("div");
     box.innerHTML = `<b>${key === "L" ? "Left" : "Right"}</b>
       <div class="scroll"><table>
-        <thead><tr><th></th><th class="grp" colspan="2">Loading</th><th class="grp" colspan="2">Unloading</th><th class="grp" colspan="2">Single curve</th><th></th></tr>
-        <tr><th>Ch · site</th><th>a</th><th>b</th><th>a</th><th>b</th><th>a</th><th>b</th><th>Base mV</th></tr></thead><tbody></tbody></table></div>`;
+        <thead><tr><th></th><th class="grp lin" colspan="1">Linear</th><th class="grp" colspan="2">Loading</th><th class="grp" colspan="2">Unloading</th><th class="grp" colspan="2">Single curve</th><th></th></tr>
+        <tr><th>Ch · site</th><th class="lin">N / mV</th><th>a</th><th>b</th><th>a</th><th>b</th><th>a</th><th>b</th><th>Base mV</th></tr></thead><tbody></tbody></table></div>`;
     const tb = box.querySelector("tbody");
     SITES.forEach((s, i) => {
       const c = calDraft[key][i], tr = document.createElement("tr");
       tr.title = calNotes[key][i] || "";
       const zeroed = sides[key].conn ? sides[key].base[i] : c.base;
       tr.innerHTML = `<td>${s.ch} · ${s.id}</td>
+        <td class="lin">${inp(key, i, "m", c.m)}</td>
         <td class="hyst">${inp(key, i, "aU", c.aU)}</td><td class="hyst">${inp(key, i, "bU", c.bU)}</td>
         <td class="hyst">${inp(key, i, "aD", c.aD)}</td><td class="hyst">${inp(key, i, "bD", c.bD)}</td>
         <td class="single">${inp(key, i, "a", c.a)}</td><td class="single">${inp(key, i, "b", c.b)}</td>
@@ -1914,6 +2484,7 @@ function fillCalGrid(src) {
 function readCalGrid() {
   const out = copyCal(calDraft);
   out.hyst = document.getElementById("calHyst").checked;
+  out.model = document.getElementById("calModel").value === "curve" ? "curve" : "linear";
   dlg.querySelectorAll("input[data-k]").forEach(inp => {
     const v = parseFloat(inp.value);
     if (Number.isFinite(v) && v > 0) out[inp.dataset.k][+inp.dataset.i][inp.dataset.f] = v;
@@ -1921,6 +2492,7 @@ function readCalGrid() {
   return out;
 }
 document.getElementById("calHyst").onchange = () => { fillCalGrid(readCalGrid()); if (lastCheck) renderCheck(lastCheck.sets, lastCheck.title); };
+document.getElementById("calModel").onchange = () => fillCalGrid(readCalGrid());
 document.getElementById("calBtn").onclick = () => {
   document.getElementById("calReport").textContent = ""; fillCalGrid(cal); fillMount();
   lastCheck = { sets: builtinSets(), title: "Built-in UTM data" };
@@ -1936,13 +2508,15 @@ document.getElementById("calCopy").onclick = () => {
   const c = readCalGrid(); c.R = c.L.map(pickCal); calNotes.R = calNotes.L.slice(); fillCalGrid(c);
 };
 document.getElementById("calSave").onclick = () => {
-  const c = readCalGrid();
-  cal ={ hyst: c.hyst, L: c.L, R: c.R }; saveCal(); dlg.close();
+  const c = readCalGrid(), calOld = JSON.parse(JSON.stringify(cal));
+  cal = { model: c.model, hyst: c.hyst, L: c.L, R: c.R }; saveCal(); dlg.close();
+  if (recording) recEvent("CALIBRATION_CHANGE", null, { old: calOld, new: JSON.parse(JSON.stringify(cal)) });
   for (const k of ["L", "R"]) {
     const s = sides[k];
     s.hy.forEach(h => { h.on = false; });
     if (!s.conn) s.base = cal[k].map(x => x.base);
-    else if (s.tare.some(v => v > 0)) s.tare = s.tareG.map((g, i) => fStatic(g, cal[k][i]));   // preload in the new curve
+    else if (s.tare.some(v => v > 0)) s.tare = s.tareG.map((g, i) => cal.model === "linear"       // preload in the new model (preload mV rebuilt from its conductance)
+      ? (g > 0 ? fLin(s.base[i] * (1 + g * 1e-6 * RF), s.base[i], cal[k][i]) : 0) : fStatic(g, cal[k][i]));
     s.dirty = true;
   }
 };

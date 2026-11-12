@@ -8,7 +8,7 @@ Bluefy on iPhone). Press **Demo** to try it without hardware.
 
 | Folder | What |
 |---|---|
-| `firmware/FSR_Insole_App/` | ESP32-C6 sketch: raw mV of 7 channels at 50 Hz over USB serial **and** BLE |
+| `firmware/FSR_Insole_App/` | ESP32-C6 sketch: raw mV of 7 channels at **200 Hz** (v1.4) over USB serial **and** BLE (batched v2 packet), with sample counter and MCU timestamp |
 | `insole-app/index.html` | The app (single file, no install) |
 | `tools/cal_from_xlsx.py` | Per-sensor loading / unloading fits from the UTM summary workbook (`S1-S7test results.xlsx`) — the app's defaults |
 | `tools/fit_cal.py` | Older single-curve fit from the raw UTM CAL CSVs |
@@ -45,7 +45,10 @@ otherwise press **Zero** with the foot off the insole.
   sensors only and reads below the true foot load.
 - Zero: channels at 250–350 mV set their base (VREF). A channel above that is preloaded: base stays ≈300 mV and the preload is
   subtracted in newtons. All channels high by the same amount → VREF shifted (warning shown).
-- Live COP (x, y in mm, PDF insole coordinates) = Σ(rᵢ Fᵢ)/Σ Fᵢ, with the current step's COP path drawn on the insole.
+- Live COP = Σ(rᵢ Fᵢ)/Σ Fᵢ, shown as two tiles, **COP X (ML)** and **COP Y (AP)** in mm, with the origin at the middle of the
+  insole outline (X + = right side of the drawing, Y + = toward the toes). The current step's COP path is drawn on the insole
+  with dashed centre lines marking X = 0 and Y = 0. Results add COP X / Y curves over % stance, per-step and summary values
+  (heel strike, mean, toe-off, min / max) and X / Y over the whole recording; the CSV columns `COPx_mm` / `COPy_mm` use the same origin.
 - Record → Stop & save downloads a CSV of every sample (mV, N, Fz, COP) and opens **Results**: gait events, walking
   speed / cadence / step & stride, vGRF peaks, impulse, loading rate, plantar pressure (peak kPa, PTI, contact area, COP path)
   as mean ± SD per foot, plus a per-step table and "Export steps CSV". Results also appear when a foot disconnects mid-recording.
@@ -63,7 +66,19 @@ otherwise press **Zero** with the foot off the insole.
 Connect each foot with **Bluetooth**, press **● Record**, walk, press **■ Stop & save**. No cable or SD card is needed.
 - Rows are saved in the browser's storage about once a second (header shows time · rows · saved). If the tab closes, the phone
   sleeps or the page crashes, the log is kept up to that second and appears under **Logs** as "recovered".
-- **Logs** lists every recording in this browser: Download (laptop / Android → Downloads), Share (phone → Files, Drive, e-mail), Delete.
+- **Logs** lists every recording in this browser: Download (laptop / Android → Downloads), **ZIP** (research export), **XML** (the same raw samples as an XML file),
+  Share (phone → Files, Drive, e-mail), Delete. Tick **+ XML** next to ● Record to also download the XML automatically on Stop.
+  The XML has one `<Sample>` per CSV row (t_ms, foot, src, Fz_N, COP, 7 `<Sensor id ch mV N>`, optional `<IMU>`), a `<Meta>` block
+  with the CSV header lines and a `<Sites>` block with the sensor coordinates. It is about 4 times the CSV size.
+
+## Research export (app 1.5.0-research, firmware 1.4)
+
+For validation studies (e.g. against a pressure treadmill): enter **Participant / Run / Condition / Speed / Mass**, record, and Stop (or Logs → ZIP)
+to get `P01_R01/` with `P01_R01_insole_L.csv` (raw mV, forces, CoP, IMU, `sample_seq`, device time `dev_us`, host receive time, validity and saturation masks),
+`P01_R01_metadata.json` (calibration, baseline/tare, sensor positions, coordinate frames and the transform to the CAD corner frame, firmware, timing, counts)
+and `P01_R01_events.csv` (zero, tare/calibration changes, link loss, packet drops, stream errors). Per-sensor calibration is now **linear**
+(`N = m·(mV − baseline)`, from the PVC test on the insole); the earlier curve/hysteresis model is still selectable. Check an export with
+`python tools/validate_export.py P01_R01.zip`. Full documentation, schemas, test results, limits and the pre-lab checklist: [docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md).
 - A dropped BLE link reconnects by itself for ≈40 s without losing zero, calibration or the recording; the status shows
   "% lost" from the packet counter, and the CSV has `dev_ms` (board time) plus BLE loss in its header line.
 - The screen is kept awake while a foot streams over BLE or a recording runs (phones stop Bluetooth in the background):
