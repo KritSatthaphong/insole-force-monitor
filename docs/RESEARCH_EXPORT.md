@@ -1,4 +1,4 @@
-# Research-grade data export (app 1.5.0-research, firmware 1.4, 2026-11-12)
+# Research-grade data export (app 1.5.1-research, firmware 1.4, 2026-11-12)
 
 Scope of this release: **logging, export structure, metadata and data integrity**, plus the two changes you asked for explicitly
 (linear calibration from the PVC test, 200 Hz). Not touched: ADC averaging, CoP formula and origin, hysteresis model code, gait/IMU
@@ -29,7 +29,7 @@ analysis, real-time visualisation. Backups of the previous files: `backup_202611
 - Serial 921600 baud (matters only for the CH343/UART port) and a larger TX buffer; native USB ignores the baud rate.
 - `#TIMING` line every 2 s and on `?`: `adc_us_avg/max, frame_us_max, late, late_us_max, over, resync, ble_mtu`; `#INFO` now also has `oversample`, `mac`, `build`.
 
-**App `insole-app/index.html` 1.4 -> 1.5.0-research**
+**App `insole-app/index.html` 1.4 -> 1.5.1-research** (1.5.1, 2026-11-13: USB baud auto-fallback, see below)
 - Calibration: new model **Linear** `N = max(0, m*(mV - baseline) - tare)`, 0 N below baseline + 4 mV; selector in the Calibration dialog; old curve model untouched and selectable. A calibration saved in your browser keeps its curve values but switches to Linear once.
 - Parser: accepts 9/11/16/18-field `D` lines (anything else is a logged `bad_line`), `#INFO`, `#TIMING`, `#WARN`; BLE v2 and v1; micros() unwrapped across the 71.6 min rollover.
 - Sequence tracking: missing / duplicate / out-of-order / MCU restart, per recording.
@@ -40,8 +40,9 @@ analysis, real-time visualisation. Backups of the previous files: `backup_202611
 - Research export (ZIP, or 3 separate files) on Stop (`+ ZIP`, default on) and from Logs (`ZIP`, `3 files`). Existing CSV and XML downloads unchanged.
 - Events, frozen configuration snapshot, metadata JSON; everything is saved with the log every second, so a crashed/recovered recording can still be exported (metadata says `recovered_log: true`).
 - Footer shows the app version (check it after a hard refresh).
+- **1.5.1 fix:** USB connect first tries 921600 baud (firmware 1.4 on the CH343/UART port); if no recognisable line arrives within 2.5 s it retries 115200 (older firmware) and, if still silent, shows what it received and what to check. Without this, a board on older firmware looked like "USB - waiting for data".
 
-**New files**: `tools/cal_linear_from_xlsx.py`, `tools/validate_export.py`, `data/linear_cal_pvc.json`, `docs/`, `docs/examples/P00_R01/` (simulated).
+**New files**: `tools/cal_linear_from_xlsx.py`, `tools/validate_export.py`, `tools/hw_test_usb.py`, `data/linear_cal_pvc.json`, `docs/`, `docs/examples/P00_R01/` (simulated).
 
 ## 3. CSV schema (`<ID>_insole_L.csv`, one row = one sample of that insole, as received)
 
@@ -74,7 +75,7 @@ All fields you listed are present. Top level: `schema_version, export_version, r
 - `sensors[i]`: `sensor_id (S1,S4,S6,S11,S13,S10,S14 - not renamed), channel, adc_gpio, position_cop_frame_mm, position_cad_mm, calibration {model, formula, m_N_per_mV, baseline_mV, tare_N, tare_G_uS, dead_band_mV, curve_model_parameters {aU,bU,aD,bD,a,b, in_use}, saturation_mV}`.
 - `coordinates`: frame, origin, x/y axis definitions, positive directions (X + = toward the right of the drawing: **medial for the left insole**; Y + = heel -> toe), unit mm, canonical CAD frame, `transform_app_to_cad_3x3 = [[1,0,45.365],[0,1,136.005],[0,0,1]]`, CoP formula and validity rule.
 - Global force scaling: `global_force_scaling_enabled` mirrors the app's BW-scale switch (off by default); exported forces are never scaled.
-- Source revision: Git tag `v1.5.0-research` (an app cannot know its own commit hash).
+- Source revision: Git tag `v1.5.1-research` (an app cannot know its own commit hash; recordings made with 1.5.0 cite `v1.5.0-research`).
 - Full example: `docs/examples/P00_R01/P00_R01_metadata.json` (**simulated**).
 
 ## 5. Events CSV (`<ID>_events.csv`)
@@ -129,8 +130,8 @@ Validator results: simulated USB 200 Hz example 20 PASS / 0 FAIL; BLE v2 21 / 0;
 ## 8. Pre-lab checklist
 
 1. Flash `firmware/FSR_Insole_App/FSR_Insole_App.ino` v1.4 (CDC On Boot: Enabled, native USB port VID 303A). Close the Serial Monitor before using the app.
-2. In the Serial Monitor (921600 or any, native USB) send `?`: `v1.4`, `hz=200`, `imu=BMI270`, `|a|` about 1.00 g. Leave it 30 s on a table and check `#TIMING`: `late=0 over=0 resync=0`, `adc_us_max` < 4000. If not, lower `OVERSAMPLE`.
-3. Open the live site, hard refresh (Ctrl+Shift+R), footer must say `App 1.5.0-research`.
+2. **Fastest way: `python tools/hw_test_usb.py COM6`** (find the port with `--list`; close the Serial Monitor and the web app first). It records 35 s over USB, leave the insole unloaded for the first 5 s, then press every sensor / walk, and prints PASS / WARN / FAIL for firmware version, 200 Hz rate, missing samples, MCU timing jitter, `#TIMING` counters, unloaded mV, |a|, channel response and saturation. Zero FAIL = the board is ready. Or by hand: in the Serial Monitor (921600 or any, native USB) send `?`: `v1.4`, `hz=200`, `imu=BMI270`, `|a|` about 1.00 g. Leave it 30 s on a table and check `#TIMING`: `late=0 over=0 resync=0`, `adc_us_max` < 4000. If not, lower `OVERSAMPLE`.
+3. Open the live site, hard refresh (Ctrl+Shift+R), footer must say `App 1.5.1-research`.
 4. Connect the left board by USB. Message must say "Zeroed" with the insole unloaded and off the floor. Press Zero again if needed (not during a recording).
 5. Fill Participant, Run, Condition, Speed, Mass. Never record with Demo (the file name gets `_DEMO` and metadata says `demo`).
 6. 30-40 s test recording: the live line must show `missing 0`. Stop, open the ZIP, run `python tools/validate_export.py <file>.zip`. Zero FAIL expected.

@@ -71,14 +71,14 @@ Connect each foot with **Bluetooth**, press **● Record**, walk, press **■ St
   The XML has one `<Sample>` per CSV row (t_ms, foot, src, Fz_N, COP, 7 `<Sensor id ch mV N>`, optional `<IMU>`), a `<Meta>` block
   with the CSV header lines and a `<Sites>` block with the sensor coordinates. It is about 4 times the CSV size.
 
-## Research export (app 1.5.0-research, firmware 1.4)
+## Research export (app 1.5.1-research, firmware 1.4)
 
 For validation studies (e.g. against a pressure treadmill): enter **Participant / Run / Condition / Speed / Mass**, record, and Stop (or Logs → ZIP)
 to get `P01_R01/` with `P01_R01_insole_L.csv` (raw mV, forces, CoP, IMU, `sample_seq`, device time `dev_us`, host receive time, validity and saturation masks),
 `P01_R01_metadata.json` (calibration, baseline/tare, sensor positions, coordinate frames and the transform to the CAD corner frame, firmware, timing, counts)
 and `P01_R01_events.csv` (zero, tare/calibration changes, link loss, packet drops, stream errors). Per-sensor calibration is now **linear**
 (`N = m·(mV − baseline)`, from the PVC test on the insole); the earlier curve/hysteresis model is still selectable. Check an export with
-`python tools/validate_export.py P01_R01.zip`. Full documentation, schemas, test results, limits and the pre-lab checklist: [docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md).
+`python tools/validate_export.py P01_R01.zip`; check the board itself with `python tools/hw_test_usb.py COM6`. Full documentation, schemas, test results, limits and the pre-lab checklist: [docs/RESEARCH_EXPORT.md](docs/RESEARCH_EXPORT.md).
 - A dropped BLE link reconnects by itself for ≈40 s without losing zero, calibration or the recording; the status shows
   "% lost" from the packet counter, and the CSV has `dev_ms` (board time) plus BLE loss in its header line.
 - The screen is kept awake while a foot streams over BLE or a recording runs (phones stop Bluetooth in the background):

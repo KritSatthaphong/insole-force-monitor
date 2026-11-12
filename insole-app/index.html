@@ -299,8 +299,8 @@ button.bw[aria-pressed="true"] { background: var(--accent); color: var(--accent-
 const RF = 39000;            // feedback resistor (ohm)
 const SAT_MV = 3250;         // ADC saturation flag
 // Research export (2026-11-12): versions written into every metadata.json
-const APP_VERSION = "1.5.0-research", EXPORT_VERSION = "1.0", SCHEMA_VERSION = "1.0";
-const SOURCE_REV = "github.com/KritSatthaphong/insole-force-monitor, git tag v1.5.0-research";
+const APP_VERSION = "1.5.1-research", EXPORT_VERSION = "1.0", SCHEMA_VERSION = "1.0";
+const SOURCE_REV = "github.com/KritSatthaphong/insole-force-monitor, git tag v1.5.1-research";
 // Linear calibration N = m·(mV − baseline), m in N per mV, one per channel (S1, S4, S6, S11, S13, S10, S14).
 // Fitted by tools/cal_linear_from_xlsx.py from 'Final Test Results.xlsx', sheet PVC (test directly on the insole, both runs pooled,
 // saturated points dropped, line forced through the zero-load mV). See data/linear_cal_pvc.json.
@@ -961,9 +961,10 @@ async function connectUSB(side) {
       : "USB: " + e.message);
     return;
   }
-  let reader = null, stop = false;
+  let reader = null, stop = false, gen = 0, baudI = 0, okLines = 0, rxBytes = 0, firstText = "";
+  const BAUDS = [921600, 115200];              // v1.4 on the CH343/UART port = 921600; older firmware = 115200 (native USB ignores both)
   const close = async () => {
-    stop = true;
+    stop = true; gen++;
     try { if (reader) await reader.cancel(); } catch (e) {}
     try { await port.close(); } catch (e) {}
   };
@@ -980,27 +981,59 @@ async function connectUSB(side) {
   side.send("?\n");
   const dec = new TextDecoder();
   let buf = "";
-  (async () => {
-    try {
-      while (!stop && port.readable) {
-        reader = port.readable.getReader();
-        try {
-          for (;;) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            let nl;
-            while ((nl = buf.indexOf("\n")) >= 0) { onLine(side, buf.slice(0, nl)); buf = buf.slice(nl + 1); }
-            if (buf.length > 4096) { buf = ""; streamError(side, "rx_buffer_overflow", {}); }
-          }
-        } finally { reader.releaseLock(); }
+  const startReader = () => {
+    const my = ++gen;
+    (async () => {
+      try {
+        while (!stop && gen === my && port.readable) {
+          reader = port.readable.getReader();
+          try {
+            for (;;) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              rxBytes += value.length;
+              buf += dec.decode(value, { stream: true });
+              let nl;
+              while ((nl = buf.indexOf("\n")) >= 0) {
+                const ln = buf.slice(0, nl);
+                if (/^(D,|#|t:|S1:)/.test(ln)) okLines++; else if (!firstText && ln.trim()) firstText = ln.trim().slice(0, 40);
+                onLine(side, ln); buf = buf.slice(nl + 1);
+              }
+              if (buf.length > 4096) { buf = ""; streamError(side, "rx_buffer_overflow", {}); }
+            }
+          } finally { reader.releaseLock(); }
+        }
+      } catch (e) {
+        if (!stop && gen === my) { await close(); deactivate(side, "USB disconnected: " + e.message); }
+        return;
       }
-    } catch (e) {
-      if (!stop) { await close(); deactivate(side, "USB disconnected: " + e.message); }
+      if (!stop && gen === my) { await close(); deactivate(side, "USB disconnected."); }
+    })();
+  };
+  startReader();
+  // Nothing recognisable after 2.5 s: try the other baud rate (older firmware on the CH343 port), then say what was seen
+  const watch = () => setTimeout(async () => {
+    if (stop || !side.conn || side.conn.close !== close) return;
+    if (side.count > 0) { if (baudI > 0) setMsg(side, `USB connected at ${BAUDS[baudI]} baud (older firmware: 50 Hz, no sample counter or device timestamp; flash firmware 1.4 for the research export).`); return; }
+    if (okLines > 0) {                                  // the board talks, but sends no D lines
+      setMsg(side, `USB: the board answers (${okLines} text lines) but sends no "D," sample lines. Flash FSR_Insole_App (firmware/FSR_Insole_App), or check that it is not in a different mode.`);
       return;
     }
-    if (!stop) { await close(); deactivate(side, "USB disconnected."); }
-  })();
+    if (baudI + 1 < BAUDS.length) {
+      baudI++;
+      setMsg(side, `USB: no data at ${BAUDS[baudI - 1]} baud (${rxBytes} bytes). Trying ${BAUDS[baudI]} baud…`);
+      gen++; rxBytes = 0; buf = "";
+      try { if (reader) await reader.cancel(); } catch (e) {}
+      try { await port.close(); await port.open({ baudRate: BAUDS[baudI] }); }
+      catch (e) { setMsg(side, "USB: could not reopen the port: " + e.message); return; }
+      startReader(); side.send("?\n"); watch();
+      return;
+    }
+    setMsg(side, `USB: no data at ${BAUDS.join(" or ")} baud (${rxBytes} bytes received${firstText ? `, e.g. "${firstText}"` : ""}). ` +
+      "Check: 1) the right port (native USB, VID 303A, if the sketch was built with USB CDC On Boot: Enabled; the CH343 port if it was Disabled), " +
+      "2) the sketch is flashed and running (press the board's RESET), 3) no other program holds the port. Then press Disconnect and USB again.");
+  }, 2500);
+  watch();
 }
 
 // ---------- Bluetooth (Web Bluetooth, Nordic UART) ----------
