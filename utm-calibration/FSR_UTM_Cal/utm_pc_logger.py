@@ -6,6 +6,7 @@ Close the Arduino Serial Monitor first (one program per port). Type the sketch c
     pip install pyserial
     python utm_pc_logger.py                       (finds the ESP32 port by itself)
     python utm_pc_logger.py COM5 --out D:\\capstone\\utm_data
+    python utm_pc_logger.py --pc toon --baud 115200        (Toon's laptop = COM5, Krit's laptop = COM7: --pc krit)
 
 Files in the output folder (default ./utm_data):
     UP01_S1_R1_20261112_101500.csv   one machine run: header, R raw 200 Hz rows, EV events (with PC time),
@@ -31,6 +32,7 @@ from serial.tools import list_ports
 
 VERSION = "utm_pc_logger v3.0"
 FILE_TYPES = ("R,", "CAL,", "EV,", "HOLD,", "BASE,", "#")
+LAPTOPS = {"toon": "COM5", "krit": "COM7"}         # --pc toon / --pc krit
 
 
 def now_iso():
@@ -292,13 +294,15 @@ def reader(port, lg, stop):
 def main():
     ap = argparse.ArgumentParser(description=f"PC logger for FSR_UTM_Cal v3.x ({VERSION})")
     ap.add_argument("port", nargs="?", help="serial port, e.g. COM5 or /dev/ttyACM0")
+    ap.add_argument("--pc", choices=sorted(LAPTOPS), help="laptop: toon = COM5, krit = COM7 (instead of the port)")
     ap.add_argument("--out", default="utm_data", help="output folder (default ./utm_data)")
     ap.add_argument("--baud", type=int, default=921600, help="only matters for a UART bridge")
     ap.add_argument("--show-raw", action="store_true", help="also print the 200 Hz R rows")
     ap.add_argument("--no-dtr", action="store_true", help="keep DTR low (v2 behaviour)")
     a = ap.parse_args()
 
-    port = Port(a.port or find_port(), a.baud, dtr=not a.no_dtr)
+    name = a.port or (LAPTOPS[a.pc] if a.pc else None) or find_port()
+    port = Port(name, a.baud, dtr=not a.no_dtr)
     try:
         port.open()
     except serial.SerialException as e:

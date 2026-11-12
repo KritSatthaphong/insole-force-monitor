@@ -7,7 +7,8 @@ load → hold → load / unload → hold). Board: Waveshare ESP32-C6-DEV-KIT-N8,
 |---|---|---|
 | [`FSR_UTM_Hold/`](FSR_UTM_Hold/) | **Simple version (in use).** Type `h` when the UTM hold starts; the board measures until 3 s before the hold ends and asks for the force on the UTM display. One CAL row per hold, no Shimadzu export, no time syncing. Guide: [`HOLD_GUIDE.md`](FSR_UTM_Hold/HOLD_GUIDE.md) | Fast sessions |
 | [`FSR_UTM_Cal/`](FSR_UTM_Cal/) | **Full version v3.0.** Continuous 200 Hz recording of each machine run, run plan, event marks, on-board hold detection and QC, pre/post baselines. Paired afterwards with the Shimadzu raw export by [`tools/utm_pair.py`](tools/utm_pair.py) (time alignment, one row per hold, QC flags, plot). Guide: [`UTM_SESSION_GUIDE.md`](FSR_UTM_Cal/UTM_SESSION_GUIDE.md) | Reference force from the load cell export, full 30 s drift traces |
-| `FSR_UTM_*/utm_pc_logger.py` | PC logger for both sketches (`pip install pyserial`). Saves the files; reconnects after a cable drop | Instead of the Serial Monitor |
+| [Web logger](https://kritsatthaphong.github.io/insole-force-monitor/utm-logger/) ([`../utm-logger/`](../utm-logger/)) | Browser logger (Chrome / Edge, Web Serial): laptop preset Toon = COM5 / Krit = COM7, buttons, live table + mV–N plot, files saved on `save` | Easiest: no Python |
+| `FSR_UTM_*/utm_pc_logger.py` | PowerShell logger for both sketches (`pip install pyserial`); `--pc toon` (COM5) / `--pc krit` (COM7); `--baud 115200` for FSR_UTM_Hold on the UART port | Instead of the Serial Monitor |
 | [`dev/`](dev/) | PC simulation of the sketch (stub Arduino / FreeRTOS, simulated FSR + UTM) and the hold-detector unit test | Development only |
 | [`results/`](results/) | Measured data: S1 cycle 1 at 39 kΩ (loading 0–990 N, 30 s holds) and the older 47 kΩ runs | |
 

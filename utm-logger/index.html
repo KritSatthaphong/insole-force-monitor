@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UTM Logger</title>
+<meta name="description" content="Browser logger for the FSR UTM calibration sketches (FSR_UTM_Hold, FSR_UTM_Cal) over Web Serial">
+<style>
+:root {
+  --bg: #f4f5f7; --surface: #ffffff; --surface-2: #eef0f3; --line: #d6dae0;
+  --text: #17202a; --muted: #5d6875; --accent: #0f6e7a; --accent-ink: #ffffff;
+  --ok: #1d8a4e; --warn: #b26b00; --bad: #c0392b; --up: #2a78d6; --dn: #eb6834; --z: #8a96a3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101418; --surface: #182027; --surface-2: #212b34; --line: #2f3b46;
+    --text: #e6ebf0; --muted: #96a3b0; --accent: #3fb6c4; --accent-ink: #062126;
+    --ok: #45c07a; --warn: #e3a33a; --bad: #ef6b5b; --up: #5aa2f0; --dn: #f08a4b; --z: #7d8994;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101418; --surface: #182027; --surface-2: #212b34; --line: #2f3b46;
+  --text: #e6ebf0; --muted: #96a3b0; --accent: #3fb6c4; --accent-ink: #062126;
+  --ok: #45c07a; --warn: #e3a33a; --bad: #ef6b5b; --up: #5aa2f0; --dn: #f08a4b; --z: #7d8994;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 17px; margin: 0 auto 0 0; }
+header h1 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+select, input[type=text] { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; }
+button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+.pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+.pill.on { color: var(--ok); border-color: var(--ok); }
+.pill.rec { color: var(--bad); border-color: var(--bad); }
+main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; padding: 14px 16px; }
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+.card h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+#hint { margin: 10px 16px 0; padding: 9px 12px; border-radius: 10px; background: var(--surface-2); color: var(--text); }
+#hint:empty { display: none; }
+#prompt { min-height: 22px; margin: 0 0 8px; font-weight: 600; color: var(--warn); }
+#term { height: 46vh; min-height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#term .w { color: var(--warn); } #term .e { color: var(--bad); } #term .p { color: var(--warn); font-weight: 700; }
+#term .c { color: var(--ok); } #term .me { color: var(--accent); } #term .pc { color: var(--muted); }
+.cmdrow { display: flex; gap: 8px; margin-top: 8px; }
+.cmdrow input { flex: 1; min-width: 0; font-size: 16px; }
+.quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.quick button.big { font-weight: 700; min-width: 64px; }
+#stat { font: 12.5px ui-monospace, Consolas, monospace; color: var(--muted); margin-top: 6px; min-height: 18px; }
+canvas { width: 100%; height: 300px; display: block; }
+.tablewrap { max-height: 32vh; overflow: auto; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+td.l, th.l { text-align: left; }
+.legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.files { font-size: 12.5px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <h1>UTM Logger <small>FSR_UTM_Hold / FSR_UTM_Cal over USB, Chrome or Edge</small></h1>
+  <label>Laptop
+    <select id="laptop">
+      <option value="toon">Toon (COM5)</option>
+      <option value="krit">Krit (COM7)</option>
+      <option value="other">Other</option>
+    </select>
+  </label>
+  <label>Baud
+    <select id="baud">
+      <option value="115200">115200 (FSR_UTM_Hold)</option>
+      <option value="921600">921600 (FSR_UTM_Cal)</option>
+    </select>
+  </label>
+  <label title="Some Windows USB drivers send nothing until DTR is on. Turn off if the board is silent on the UART port.">
+    <input type="checkbox" id="dtr" checked> DTR</label>
+  <button id="btnFolder" title="Write the files straight into a folder (otherwise they are downloaded)">Save folder…</button>
+  <button id="btnConnect" class="primary">Connect</button>
+  <span id="conn" class="pill">not connected</span>
+  <span id="rec" class="pill">no file</span>
+</header>
+<div id="hint"></div>
+<main>
+  <section class="card">
+    <h2>Board</h2>
+    <div id="prompt"></div>
+    <div id="term" aria-live="polite"></div>
+    <div class="cmdrow">
+      <input type="text" id="cmd" placeholder="command or force in N, then Enter (empty Enter = target)" autocomplete="off" spellcheck="false">
+      <button id="btnSend" class="primary">Send</button>
+    </div>
+    <div class="quick">
+      <button class="big" data-c="run">run</button>
+      <button class="big" data-c="h">h</button>
+      <button data-c="a" title="redo the hold (at the force prompt)">a redo</button>
+      <button data-c="x" title="cancel / discard">x</button>
+      <button data-c="save">save</button>
+      <button data-c="list">list</button>
+      <button data-c="plan">plan</button>
+      <button data-c="z">z</button>
+      <button data-c="l">live</button>
+      <button data-c="?">?</button>
+      <button id="btnSaveNow" title="Save what is recorded so far (file stays open)">Save partial</button>
+      <button id="btnClear">Clear screen</button>
+    </div>
+    <div id="stat"></div>
+  </section>
+  <section class="card">
+    <h2>Hold points (this file)</h2>
+    <canvas id="plot" width="800" height="300" aria-label="FSR output in mV against UTM force in N"></canvas>
+    <div class="legend"><span><i style="background:var(--up)"></i>loading U</span><span><i style="background:var(--dn)"></i>unloading D</span><span><i style="background:var(--z)"></i>zero Z</span><span id="fitTxt"></span></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th class="l">run</th><th>hold</th><th class="l">dir</th><th>set N</th><th>UTM N</th><th>mean mV</th><th>sd</th><th>drift mV</th><th>flags</th></tr></thead>
+      <tbody id="pts"></tbody>
+    </table></div>
+    <div class="files" id="files"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const LAPTOPS = { toon: "COM5", krit: "COM7" };
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+$("laptop").value = store.get("utmlog_laptop", "krit");
+$("baud").value = store.get("utmlog_baud", "115200");
+$("dtr").checked = store.get("utmlog_dtr", "1") === "1";
+$("laptop").onchange = () => { store.set("utmlog_laptop", $("laptop").value); showHint(); };
+$("baud").onchange = () => store.set("utmlog_baud", $("baud").value);
+$("dtr").onchange = () => store.set("utmlog_dtr", $("dtr").checked ? "1" : "0");
+
+let port = null, reader = null, keepReading = false, dirHandle = null;
+let file = null;            // {name, kind, ch, lines: [], cal: [], calHead}
+let points = [];
+const saved = [];
+
+function comName() { return LAPTOPS[$("laptop").value]; }
+function showHint(t) {
+  const c = comName();
+  $("hint").textContent = t != null ? t : (port ? "" :
+    `Close the Arduino Serial Monitor, then Connect and choose ${c ? c + " (" + $("laptop").selectedOptions[0].text.split(" ")[0] + "'s laptop)" : "the board's COM port"} in the list. ` +
+    "Baud 115200 for FSR_UTM_Hold. Files are downloaded when the board closes them (save), or written to the Save folder.");
+}
+if (!("serial" in navigator)) showHint("This browser has no Web Serial. Use Chrome or Edge on a PC (https page).");
+else showHint();
+
+// ---------------- terminal ----------------
+const term = $("term");
+function addTerm(text, cls) {
+  const atBottom = term.scrollTop + term.clientHeight >= term.scrollHeight - 30;
+  const d = document.createElement("div");
+  if (cls) d.className = cls;
+  d.textContent = text;
+  term.appendChild(d);
+  while (term.childNodes.length > 1500) term.removeChild(term.firstChild);
+  if (atBottom) term.scrollTop = term.scrollHeight;
+}
+function pc(t) { addTerm("[PC] " + t, "pc"); }
+
+// ---------------- files ----------------
+function stamp() {
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+async function writeOut(name, text) {
+  if (dirHandle) {
+    try {
+      const fh = await dirHandle.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(text); await w.close();
+      return "folder";
+    } catch (e) { pc("could not write to the folder (" + e.message + "), downloading instead"); }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return "download";
+}
+async function saveFile(partial) {
+  if (!file) { pc("no file open"); return; }
+  const suf = partial ? "_partial" : "";
+  const how = await writeOut(file.name + suf + ".csv", file.lines.join("\n") + "\n");
+  let msg = `saved ${file.name}${suf}.csv (${file.lines.length} lines, ${how})`;
+  if (file.cal.length) {
+    await writeOut(file.name + suf + "_CAL.csv", [file.calHead, ...file.cal].join("\n") + "\n");
+    msg += `, ${file.name}${suf}_CAL.csv (${file.cal.length} points)`;
+  }
+  pc(msg);
+  if (!partial) { saved.push(msg.replace("saved ", "")); $("files").textContent = "Saved: " + saved.join(" | "); }
+}
+function openFile(parts) {
+  if (file) { pc("new file before the old one was closed: saving the old one"); saveFile(false); }
+  const kind = parts[1], ch = parseInt(parts[2], 10);
+  let name = kind === "RUN" ? `${parts[3]}_S${ch}_R${parts[4]}_${stamp()}` : ch > 0 ? `${kind}_S${ch}_${stamp()}` : `${kind}_${stamp()}`;
+  file = { name, kind, ch, lines: [`# pc_logger,utm-logger web`, `# pc_open,${new Date().toISOString()}`, `# pc_laptop,${$("laptop").value}`],
+           cal: [], calHead: "CAL" };
+  points = []; drawPoints();
+  $("rec").textContent = "recording " + name; $("rec").className = "pill rec";
+  store.set("utmlog_open", name);
+}
+async function closeFile(line) {
+  if (!file) return;
+  file.lines.push("# " + line, `# pc_close,${new Date().toISOString()}`);
+  await saveFile(false);
+  file = null;
+  $("rec").textContent = "no file"; $("rec").className = "pill";
+  store.set("utmlog_open", "");
+  store.set("utmlog_cal_backup", "");
+}
+
+// ---------------- lines from the board ----------------
+function handleLine(line) {
+  if (line.startsWith("FILE_OPEN,")) { openFile(line.split(",")); addTerm(line, "pc"); return; }
+  if (line.startsWith("FILE_CLOSE")) { addTerm(line, "c"); closeFile(line); return; }
+  if (line.startsWith("FSR_UTM_") && file) { pc("WARNING: the board restarted while a file was open"); closeFile("board restarted"); }
+  const toFile = /^(R,|CAL,|EV,|HOLD,|BASE,|#)/.test(line);
+  if (file && toFile) {
+    file.lines.push(line.startsWith("EV,") ? line + "," + new Date().toISOString() : line);
+    if (line.startsWith("# CAL,")) file.calHead = line.slice(2);
+    else if (line.startsWith("CAL,")) { file.cal.push(line); addPoint(line); store.set("utmlog_cal_backup", [file.calHead, ...file.cal].join("\n")); }
+  }
+  if (line.startsWith("R,")) return;
+  if (line.startsWith("STAT,") || line.startsWith("LIVE,")) { $("stat").textContent = line; return; }
+  if (line.startsWith("#") && !line.startsWith("# note") && !line.startsWith("# end") && !line.startsWith("# run")) return;
+  if (line.startsWith("PROMPT,")) { $("prompt").textContent = line.slice(7); $("cmd").focus(); }
+  else if (/^(INFO,(hold \d+ saved|.*measuring|=== )|MEAS,)/.test(line)) $("prompt").textContent = "";
+  const cls = line.startsWith("WARN") ? "w" : line.startsWith("ERR") ? "e" : line.startsWith("PROMPT") ? "p" :
+              line.startsWith("CAL,") ? "c" : line.startsWith("MEAS") ? "me" : "";
+  addTerm(line, cls);
+}
+
+// ---------------- points + plot ----------------
+function addPoint(line) {
+  const head = (file && file.calHead ? file.calHead : "").split(",");
+  const v = line.split(","), col = k => head.indexOf(k);
+  const get = k => col(k) >= 0 ? v[col(k)] : "";
+  points.push({ run: get("run_id") || get("cycle"), hold: get("hold") || get("step"), dir: get("dir"), set: +get("set_N"),
+                F: +get("utm_N"), mv: +get("mean_mV"), sd: +get("sd_mV"), drift: get("drift_mV"), flags: get("flags") });
+  drawPoints();
+}
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function drawPoints() {
+  $("pts").innerHTML = points.map(p => `<tr><td class="l">${p.run}</td><td>${p.hold}</td><td class="l">${p.dir}</td><td>${p.set.toFixed(0)}</td>` +
+    `<td>${p.F.toFixed(1)}</td><td>${p.mv.toFixed(1)}</td><td>${p.sd.toFixed(2)}</td><td>${p.drift === "" ? "" : (+p.drift).toFixed(1)}</td>` +
+    `<td>${p.flags}</td></tr>`).reverse().join("");
+  const cv = $("plot"), r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(300, r.width * dpr); cv.height = 300 * dpr;
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = cv.width / dpr, H = 300, L = 52, B = 34, T = 10, Rm = 12;
+  g.clearRect(0, 0, W, H);
+  const fMax = Math.max(1000, ...points.map(p => p.F)), vMax = Math.max(3300, ...points.map(p => p.mv));
+  const x = f => L + f / fMax * (W - L - Rm), y = v => H - B - v / vMax * (H - B - T);
+  g.font = "11px system-ui"; g.fillStyle = css("--muted"); g.strokeStyle = css("--line"); g.lineWidth = 1;
+  for (let f = 0; f <= fMax; f += 200) { g.beginPath(); g.moveTo(x(f), T); g.lineTo(x(f), H - B); g.stroke(); g.textAlign = "center"; g.fillText(f, x(f), H - B + 14); }
+  for (let v = 0; v <= vMax; v += 500) { g.beginPath(); g.moveTo(L, y(v)); g.lineTo(W - Rm, y(v)); g.stroke(); g.textAlign = "right"; g.fillText(v, L - 6, y(v) + 4); }
+  g.textAlign = "center"; g.fillText("UTM force (N)", (L + W) / 2, H - 4);
+  g.save(); g.translate(12, (H - B) / 2); g.rotate(-Math.PI / 2); g.fillText("FSR output (mV)", 0, 0); g.restore();
+  g.setLineDash([4, 4]); g.strokeStyle = css("--bad"); g.beginPath(); g.moveTo(L, y(3250)); g.lineTo(W - Rm, y(3250)); g.stroke(); g.setLineDash([]);
+  g.textAlign = "left"; g.fillStyle = css("--bad"); g.fillText("clip 3250 mV", L + 4, y(3250) - 4);
+  for (const d of ["U", "D"]) {             // connect points of a branch in force order
+    const q = points.filter(p => p.dir === d).sort((a, b) => a.F - b.F);
+    g.strokeStyle = css(d === "U" ? "--up" : "--dn"); g.lineWidth = 1.5; g.beginPath();
+    q.forEach((p, i) => i ? g.lineTo(x(p.F), y(p.mv)) : g.moveTo(x(p.F), y(p.mv))); g.stroke();
+  }
+  for (const p of points) {
+    g.fillStyle = css(p.dir === "U" ? "--up" : p.dir === "D" ? "--dn" : "--z");
+    g.beginPath(); g.arc(x(p.F), y(p.mv), +p.flags ? 5 : 4, 0, 2 * Math.PI); g.fill();
+    if (+p.flags) { g.strokeStyle = css("--bad"); g.lineWidth = 2; g.stroke(); }
+  }
+  const up = points.filter(p => p.dir === "U" && p.F > 0);
+  if (up.length >= 2) {
+    const n = up.length, sx = up.reduce((s, p) => s + p.F, 0), sy = up.reduce((s, p) => s + p.mv, 0);
+    const sxx = up.reduce((s, p) => s + p.F * p.F, 0), sxy = up.reduce((s, p) => s + p.F * p.mv, 0);
+    const k = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    $("fitTxt").textContent = `loading slope ${k.toFixed(3)} mV/N`;
+  } else $("fitTxt").textContent = "";
+}
+window.addEventListener("resize", drawPoints);
+drawPoints();
+
+// ---------------- serial ----------------
+async function send(text) {
+  if (!port || !port.writable) { pc("not connected"); return; }
+  const w = port.writable.getWriter();
+  try { await w.write(new TextEncoder().encode(text + "\n")); } finally { w.releaseLock(); }
+}
+async function readLoop() {
+  const dec = new TextDecoder();
+  let buf = "";
+  while (port && port.readable && keepReading) {
+    reader = port.readable.getReader();
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) { handleLine(buf.slice(0, i).replace(/\r$/, "")); buf = buf.slice(i + 1); }
+        if (buf.length > 20000) buf = "";
+      }
+    } catch (e) {
+      pc("read error: " + e.message + (file ? " (file stays open, waiting for the board)" : ""));
+      break;
+    } finally { reader.releaseLock(); reader = null; }
+  }
+}
+async function openPort(p) {
+  await p.open({ baudRate: +$("baud").value, bufferSize: 1 << 16 });
+  try { await p.setSignals({ dataTerminalReady: $("dtr").checked, requestToSend: false }); } catch {}
+  port = p; keepReading = true;
+  const info = p.getInfo();
+  const kind = info.usbVendorId === 0x303A ? "ESP32 native USB" : info.usbVendorId === 0x1A86 ? "CH343 UART port" : "serial port";
+  $("conn").textContent = "connected (" + kind + ")"; $("conn").className = "pill on";
+  $("btnConnect").textContent = "Disconnect";
+  showHint("");
+  pc(`connected: ${kind}, ${$("baud").value} baud${kind === "CH343 UART port" ? " (baud must match the sketch)" : ""}`);
+  readLoop();
+  setTimeout(() => send("?"), 300);
+  const t0 = term.childNodes.length;
+  setTimeout(() => { if (port && term.childNodes.length <= t0 + 1) showHint("Nothing received from the board: press RESET on the board, check the port " +
+    `(${comName() || "the one the Arduino IDE used"}), close the Serial Monitor. On the UART port the baud must match (115200 for FSR_UTM_Hold); try DTR off.`); }, 4000);
+}
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch {}
+  try { if (port) await port.close(); } catch {}
+  port = null;
+  $("conn").textContent = "not connected"; $("conn").className = "pill"; $("btnConnect").textContent = "Connect";
+}
+$("btnConnect").onclick = async () => {
+  if (port) { await disconnect(); pc("disconnected" + (file ? " (file still open here: Save partial to keep it)" : "")); showHint(); return; }
+  if (!("serial" in navigator)) return;
+  try {
+    showHint(`Choose ${comName() || "the board's port"} in the list.`);
+    const p = await navigator.serial.requestPort();
+    await openPort(p);
+  } catch (e) { pc("connect: " + e.message); showHint(); }
+};
+if ("serial" in navigator) {
+  navigator.serial.addEventListener("disconnect", e => {
+    if (e.target === port) { pc("board disconnected (cable or RESET): waiting for it to come back..."); keepReading = false; port = null;
+      $("conn").textContent = "reconnecting…"; $("conn").className = "pill"; $("btnConnect").textContent = "Connect"; }
+  });
+  navigator.serial.addEventListener("connect", async e => {
+    if (port) return;
+    try { await openPort(e.target); pc("reconnected"); if (file) file.lines.push(`# pc_reconnect,${new Date().toISOString()}`); }
+    catch (err) { pc("reconnect failed: " + err.message + " - press Connect"); }
+  });
+}
+$("btnFolder").onclick = async () => {
+  if (!window.showDirectoryPicker) { pc("this browser cannot write to a folder: files will be downloaded"); return; }
+  try { dirHandle = await window.showDirectoryPicker({ mode: "readwrite" }); $("btnFolder").textContent = "Folder: " + dirHandle.name; pc("files go to folder " + dirHandle.name); }
+  catch (e) { if (e.name !== "AbortError") pc("folder: " + e.message); }
+};
+function doSend() {
+  const v = $("cmd").value;
+  addTerm("> " + (v || "(Enter)"), "pc");
+  send(v);
+  $("cmd").value = "";
+  $("cmd").focus();
+}
+$("btnSend").onclick = doSend;
+$("cmd").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doSend(); } });
+document.querySelectorAll(".quick button[data-c]").forEach(b => b.onclick = () => { addTerm("> " + b.dataset.c, "pc"); send(b.dataset.c); $("cmd").focus(); });
+$("btnSaveNow").onclick = () => saveFile(true);
+$("btnClear").onclick = () => { term.textContent = ""; };
+window.addEventListener("beforeunload", e => { if (file) { e.preventDefault(); e.returnValue = ""; } });
+// a CAL table left from a closed / crashed page
+const backup = store.get("utmlog_cal_backup", "");
+if (backup && backup.split("\n").length > 1) {
+  pc(`points of an unfinished file (${store.get("utmlog_open", "?")}) were kept by this browser: `);
+  const b = document.createElement("button"); b.textContent = "Download recovered points";
+  b.onclick = async () => { await writeOut((store.get("utmlog_open", "recovered") || "recovered") + "_recovered_CAL.csv", backup + "\n"); store.set("utmlog_cal_backup", ""); b.remove(); };
+  term.appendChild(b);
+}
+</script>
+</body>
+</html>

@@ -72,3 +72,4 @@ Connect each foot with **Bluetooth**, press **● Record**, walk, press **■ St
 ## UTM calibration test code
 
 Sensor calibration on the Shimadzu UTM: see [`utm-calibration/`](utm-calibration/) (simple hold version and full v3.0 run-recording version, PC logger, pairing tool, results).
+Browser logger for those sketches: https://kritsatthaphong.github.io/insole-force-monitor/utm-logger/ (Chrome / Edge).

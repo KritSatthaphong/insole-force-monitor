@@ -4,10 +4,13 @@ No Shimadzu export and no syncing. One CAL row per hold. Two holds per Shimadzu 
 
 ## Setup (5 min)
 1. Arduino IDE: ESP32C6 Dev Module, USB CDC On Boot **Enabled**. Check `RF_OHM[]` (line ~45) = the fitted resistors. Upload.
-2. Either Serial Monitor (line ending **Newline**), or, better (saves the file): close the Serial Monitor and run
-   `python utm_pc_logger.py COM7 --baud 115200 --out utm_data`   (`pip install pyserial` once).
-   Use the COM port the Arduino IDE shows. On the UART port (CH343) `--baud 115200` is required; on the native USB port it is ignored.
-   If the board is silent, add `--no-dtr`.
+2. Connect one of three ways (close the Arduino Serial Monitor first; one program per port):
+   - **Web logger (easiest):** open https://kritsatthaphong.github.io/insole-force-monitor/utm-logger/ in Chrome or Edge,
+     pick the laptop (Toon = COM5, Krit = COM7), Baud 115200, Connect, choose that COM port. Files download on `save`
+     (or click *Save folder…* once to write them into a folder). Buttons for run / h / save; live table and mV–N plot.
+   - **PowerShell logger:** `python utm_pc_logger.py --pc krit --baud 115200 --out utm_data` (`--pc toon` = COM5, `--pc krit` = COM7;
+     or give the port, e.g. `COM7`). `pip install pyserial` once. If the board is silent, add `--no-dtr`.
+   - **Arduino Serial Monitor** (line ending "Newline"): after `save` copy the printed table into Excel.
 3. Type: `t30` (Shimadzu hold time, or `t10`), `c1` (repeat number), `s1`, then `z` with the puck clear.
 
 ## TRAPEZIUM method (4 Areas, Single)
